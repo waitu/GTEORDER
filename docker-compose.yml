@@ -1,4 +1,3 @@
-version: '3.9'
 services:
   db:
     image: postgres:15
@@ -7,14 +6,88 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: gteorder
-    ports:
-      - "5432:5432"
+    expose:
+      - "5432"
     volumes:
       - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d gteorder"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
   redis:
     image: redis:7
     restart: unless-stopped
+    expose:
+      - "6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+      - ./backend/.env.docker
+    environment:
+      # Force docker-internal connectivity regardless of what's in backend/.env
+      NODE_ENV: production
+      DB_SYNC: "false"
+      DB_SSL: "false"
+      DATABASE_URL: postgres://postgres:postgres@db:5432/gteorder
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    expose:
+      - "3000"
+    command: >
+      sh -c "set -e;
+      echo 'Waiting for docker DNS (db, redis)...';
+      for i in $(seq 1 60); do
+        node -e \"require('dns').lookup('db', e => process.exit(e ? 1 : 0))\" && break;
+        echo '...db not resolvable yet';
+        sleep 1;
+      done;
+      for i in $(seq 1 60); do
+        node -e \"require('dns').lookup('redis', e => process.exit(e ? 1 : 0))\" && break;
+        echo '...redis not resolvable yet';
+        sleep 1;
+      done;
+      echo 'Waiting for ports (5432, 6379)...';
+      for i in $(seq 1 60); do
+        node -e \"const net=require('net'); const s=net.connect(5432,'db'); s.on('connect',()=>process.exit(0)); s.on('error',()=>process.exit(1));\" && break;
+        echo '...db port not ready yet';
+        sleep 1;
+      done;
+      for i in $(seq 1 60); do
+        node -e \"const net=require('net'); const s=net.connect(6379,'redis'); s.on('connect',()=>process.exit(0)); s.on('error',()=>process.exit(1));\" && break;
+        echo '...redis port not ready yet';
+        sleep 1;
+      done;
+      echo 'Running migrations...';
+      node ./node_modules/typeorm/cli.js migration:run -d ./dist/shared/config/typeorm.datasource.js;
+      echo 'Starting API...';
+      node dist/main.js
+      "
+
+  web:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - backend
     ports:
-      - "6379:6379"
+      - "80:80"
+
 volumes:
   db_data:

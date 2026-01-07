@@ -1,0 +1,23 @@
+# dependencies
+**/node_modules/
+
+# build outputs
+**/dist/
+**/.vite/
+
+# logs
+**/*.log
+
+# env files (keep examples)
+**/.env
+**/.env.*
+!**/.env.example
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+
+# uploads/tmp (runtime data)
+backend/uploads/
+backend/tmp/
