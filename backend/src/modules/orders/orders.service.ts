@@ -1,11 +1,4 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
-
-type UploadedFile = {
-  buffer: Buffer;
-  mimetype: string;
-  originalname: string;
-  size: number;
-};
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, SelectQueryBuilder, DataSource } from 'typeorm';
 import { randomUUID } from 'crypto';
@@ -16,7 +9,6 @@ import { ScanLabelDto } from './dto/scan-label.dto.js';
 import { BalanceService } from '../../shared/balance/balance.service.js';
 import { CreditService } from '../credit/credit.service.js';
 import { getServiceKey } from '../../shared/config/pricing.config.js';
-import { LabelStorageService } from './label-storage.service.js';
 import { ScanQueueService, ScanJobPayload } from './scan-queue.service.js';
 import { BalanceTransaction } from '../../shared/balance/balance-transaction.entity.js';
 import { User } from '../users/user.entity.js';
@@ -49,7 +41,6 @@ export class OrdersService {
     @InjectRepository(Order) private readonly ordersRepo: Repository<Order>,
     private readonly balanceService: BalanceService,
     private readonly creditService: CreditService,
-    private readonly labelStorage: LabelStorageService,
     private readonly scanQueue: ScanQueueService,
     private readonly dataSource: DataSource,
   ) {}
@@ -142,52 +133,24 @@ export class OrdersService {
     return order;
   }
 
-  private detectCarrier(input: { trackingCode?: string | null; fileBuffer?: Buffer; mimeType?: string | null }): string | null {
+  private detectCarrier(input: { trackingCode?: string | null }): string | null {
     if (input.trackingCode) {
       const code = input.trackingCode.replace(/\s+/g, '').toUpperCase();
-      if (/^1Z[0-9A-Z]{16}$/i.test(code)) return 'UPS';
-      if (/^(94|93|92|94|95)[0-9]{20}$/i.test(code) || /^[A-Z]{2}[0-9]{9}US$/i.test(code)) return 'USPS';
-      if (/^[0-9]{12,14}$/i.test(code)) return 'FEDEX';
-      if (/^[A-Z]{2}[0-9]{9}HK$/i.test(code)) return 'HKPOST';
-    }
-    if (input.fileBuffer) {
-      const text = input.fileBuffer.toString('utf8').toUpperCase();
-      if (text.includes('FEDEX')) return 'FEDEX';
-      if (text.includes('UPS')) return 'UPS';
-      if (text.includes('USPS')) return 'USPS';
+      // This product currently supports USPS only.
+      if (/^(94|93|92|95)[0-9]{20}$/i.test(code) || /^[A-Z]{2}[0-9]{9}US$/i.test(code)) return 'USPS';
     }
     return null;
   }
 
-  private validateUpload(dto: ScanLabelDto, file?: UploadedFile) {
-    const hasTracking = Boolean(dto.trackingCode?.trim());
-    const hasFile = Boolean(file);
-    if ((hasTracking && hasFile) || (!hasTracking && !hasFile)) {
-      throw new BadRequestException('Provide either a label file or trackingCode, but not both');
+  async createScanLabelOrder(userId: string, dto: ScanLabelDto) {
+    const trackingCode = dto.trackingCode?.trim();
+    if (!trackingCode) {
+      throw new BadRequestException('trackingCode is required');
     }
-    if (hasFile && file) {
-      const allowedMime = ['application/pdf', 'image/png', 'image/jpeg'];
-      if (!allowedMime.includes(file.mimetype)) {
-        throw new BadRequestException('Unsupported file type');
-      }
-      const maxSize = 5 * 1024 * 1024;
-      if (file.size > maxSize) {
-        throw new BadRequestException('File too large');
-      }
-    }
-    return { hasTracking, hasFile } as const;
-  }
 
-  async createScanLabelOrder(userId: string, dto: ScanLabelDto, file?: UploadedFile) {
-    const { hasFile } = this.validateUpload(dto, file);
-    const carrier = this.detectCarrier({ trackingCode: dto.trackingCode, fileBuffer: file?.buffer, mimeType: file?.mimetype });
+    const carrier = this.detectCarrier({ trackingCode });
     if (!carrier) {
       throw new BadRequestException('Unable to detect carrier from input');
-    }
-
-    let labelUrl: string | null = null;
-    if (hasFile && file) {
-      labelUrl = await this.labelStorage.saveLabel(userId, file);
     }
 
     // Wrap order creation + debit in a single transaction to keep balances correct.
@@ -197,8 +160,8 @@ export class OrdersService {
         orderType: OrderType.ACTIVE_TRACKING,
         orderStatus: OrderStatus.PROCESSING,
         paymentStatus: PaymentStatus.PAID,
-        trackingCode: dto.trackingCode ?? null,
-        labelUrl,
+        trackingCode,
+        labelUrl: null,
         carrier,
       });
       const saved = await manager.save(draft);
@@ -213,13 +176,45 @@ export class OrdersService {
       orderId: order.id,
       userId,
       carrier,
-      trackingCode: dto.trackingCode ?? null,
-      labelUrl,
+      trackingCode,
+      labelUrl: null,
       attempts: 0,
     };
     await this.scanQueue.enqueue(job);
 
     return order;
+  }
+
+  async importTrackingBulk(userId: string, trackingCodes: string[]) {
+    const normalized = Array.from(
+      new Set(
+        (trackingCodes ?? [])
+          .map((value) => String(value ?? '').trim())
+          .filter(Boolean),
+      ),
+    );
+
+    if (normalized.length === 0) {
+      throw new BadRequestException('No tracking codes provided');
+    }
+
+    const results: { trackingCode: string; ok: boolean; orderId?: string; error?: string }[] = [];
+    for (const trackingCode of normalized) {
+      try {
+        const order = await this.createScanLabelOrder(userId, { trackingCode } as ScanLabelDto);
+        results.push({ trackingCode, ok: true, orderId: order.id });
+      } catch (err: any) {
+        const msg = err?.response?.message ?? err?.message ?? 'Failed';
+        results.push({ trackingCode, ok: false, error: Array.isArray(msg) ? msg.join(', ') : String(msg) });
+      }
+    }
+
+    return {
+      total: normalized.length,
+      created: results.filter((r) => r.ok).length,
+      failed: results.filter((r) => !r.ok).length,
+      results,
+    };
   }
 
   async updateOrderStatus(orderId: string, orderStatus: OrderStatus): Promise<Order> {

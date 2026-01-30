@@ -11,7 +11,7 @@ const trustBadges = [
 
 const quickSteps = [
   { title: 'Sign up / log in', description: 'Spin up access in 2 minutes and keep using same-day services.' },
-  { title: 'Import labels', description: 'Drag-and-drop USPS labels or sync them via API/webhook.' },
+  { title: 'Import tracking', description: 'Upload Excel/CSV tracking numbers (USPS only) or sync them via API/webhook.' },
   { title: 'Process & payout', description: 'Automated scans, fraud checks, and transparent payouts.' },
   { title: 'Track status', description: 'One console to check activation, disputes, and alerts.' },
 ];
@@ -24,7 +24,7 @@ const serviceCards = [
   },
   {
     title: 'Scan Label Automation',
-    description: 'High-speed OCR with USPS-only validation to keep your queues moving.',
+    description: 'USPS-only validation and queue processing to keep your ops moving.',
     image: 'https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=800&q=60',
   },
   {
@@ -152,13 +152,13 @@ export const LandingPage = () => {
                   <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-r from-sky-500 to-emerald-500 text-2xl text-white">
                     ▶
                   </div>
-                  <p className="mt-4 text-sm text-slate-400">Watch how teams import labels, review payouts, and monitor status.</p>
+                  <p className="mt-4 text-sm text-slate-400">Watch how teams import tracking, review payouts, and monitor status.</p>
                 </div>
                 <a
                   href="#pricing"
                   className="mt-6 inline-flex items-center justify-center rounded-full bg-white/90 px-6 py-2 text-sm font-semibold text-slate-900"
                 >
-                  Start import label
+                  Start import tracking
                 </a>
               </div>
             </div>
@@ -203,7 +203,7 @@ export const LandingPage = () => {
                 <div className={`mt-4 inline-flex rounded-full bg-gradient-to-r ${tier.accent} px-4 py-1 text-sm font-semibold text-white`}>
                   {tier.price} / label
                 </div>
-                <button className="mt-6 w-full rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-900 hover:border-emerald-300">Start import label</button>
+                <button className="mt-6 w-full rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-900 hover:border-emerald-300">Start import tracking</button>
               </div>
             ))}
           </div>

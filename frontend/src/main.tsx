@@ -10,7 +10,7 @@ import { OtpPage } from './pages/Otp';
 import { NotFoundPage } from './pages/NotFound';
 import { UnauthorizedPage } from './pages/Unauthorized';
 import { DashboardPage } from './pages/app/Dashboard';
-import { OrdersPage } from './pages/app/Orders';
+import { OrdersPage, DesignOrdersPage } from './pages/app/Orders';
 import { BalancePage } from './pages/app/Balance';
 import { PricingPage } from './pages/app/Pricing';
 import { PricingDetailsPage } from './pages/app/PricingDetails';
@@ -24,6 +24,7 @@ import { AdminDashboardPage } from './pages/admin/Dashboard';
 import { AdminUsersPage } from './pages/admin/Users';
 import { PricingManagementPage } from './pages/admin/PricingManagement';
 import { BalanceAdjustmentsPage } from './pages/admin/BalanceAdjustments';
+import { AdminCreditTopupsPage } from './pages/admin/CreditTopups';
 import { SystemLogsPage } from './pages/admin/SystemLogs';
 import { AdminOrdersPage } from './pages/admin/Orders';
 import { AuthProvider } from './context/AuthProvider';
@@ -47,6 +48,7 @@ const router = createBrowserRouter([
       { path: '/otp', element: <OtpRoute><OtpPage /></OtpRoute> },
       { path: '/dashboard', element: <ProtectedRoute><DashboardPage /></ProtectedRoute> },
       { path: '/orders', element: <ProtectedRoute><OrdersPage /></ProtectedRoute> },
+      { path: '/design', element: <ProtectedRoute><DesignOrdersPage /></ProtectedRoute> },
       { path: '/trackings', element: <ProtectedRoute><OrdersPage /></ProtectedRoute> },
       { path: '/empty-orders', element: <ProtectedRoute><OrdersPage /></ProtectedRoute> },
       { path: '/balance', element: <ProtectedRoute><BalancePage /></ProtectedRoute> },
@@ -63,6 +65,7 @@ const router = createBrowserRouter([
       { path: '/admin/audits', element: <AdminRoute><AdminAuditsPage /></AdminRoute> },
       { path: '/admin/pricing', element: <AdminRoute><PricingManagementPage /></AdminRoute> },
       { path: '/admin/balance-adjustments', element: <AdminRoute><BalanceAdjustmentsPage /></AdminRoute> },
+      { path: '/admin/credit-topups', element: <AdminRoute><AdminCreditTopupsPage /></AdminRoute> },
       { path: '/admin/system-logs', element: <AdminRoute><SystemLogsPage /></AdminRoute> },
       { path: '/unauthorized', element: <UnauthorizedPage /> },
       { path: '*', element: <NotFoundPage /> },

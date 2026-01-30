@@ -13,6 +13,7 @@ import { Order } from '../../modules/orders/order.entity.js';
 import { BalanceTransaction } from '../balance/balance-transaction.entity.js';
 import { Label } from '../../modules/labels/label.entity.js';
 import { PricingRule } from '../../modules/pricing/pricing.entity.js';
+import { CreditTopup } from '../../modules/credit/credit-topup.entity.js';
 
 export const typeOrmConfigFactory = (config: ConfigService): TypeOrmModuleOptions => {
   const databaseUrl = config.get<string>('DATABASE_URL');
@@ -38,6 +39,7 @@ export const typeOrmConfigFactory = (config: ConfigService): TypeOrmModuleOption
       PricingRule,
       Label,
       BalanceTransaction,
+      CreditTopup,
     ],
     synchronize,
     migrations: ['dist/migrations/*.js'],

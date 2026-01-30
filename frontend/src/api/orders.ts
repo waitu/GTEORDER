@@ -93,17 +93,19 @@ export const fetchOrder = async (id: string): Promise<Order> => {
     return data;
 };
 
-export const scanLabel = async (params: { trackingCode?: string; file?: File }): Promise<Order> => {
-    if ((params.trackingCode && params.file) || (!params.trackingCode && !params.file)) {
-        throw new Error('Provide either trackingCode or file');
-    }
+export const scanLabel = async (params: { trackingCode: string }): Promise<Order> => {
+    const { data } = await http.post<Order>('/orders/scan-label', { trackingCode: params.trackingCode });
+    return data;
+};
 
-    const form = new FormData();
-    if (params.trackingCode) form.append('trackingCode', params.trackingCode);
-    if (params.file) form.append('label', params.file);
+export type BulkImportTrackingResult = {
+    total: number;
+    created: number;
+    failed: number;
+    results: { trackingCode: string; ok: boolean; orderId?: string; error?: string }[];
+};
 
-    const { data } = await http.post<Order>('/orders/scan-label', form, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-    });
+export const bulkImportTracking = async (trackingCodes: string[]): Promise<BulkImportTrackingResult> => {
+    const { data } = await http.post<BulkImportTrackingResult>('/orders/import/tracking-bulk', { trackingCodes });
     return data;
 };

@@ -1,18 +1,9 @@
+import { useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { DashboardLayout } from '../../components/DashboardLayout';
+import { fetchActivity, fetchSummary } from '../../api/dashboard';
 
 const formatCurrency = (n: number) => n.toLocaleString(undefined, { style: 'currency', currency: 'USD' });
-
-const metrics = {
-  totalUsers: 1240,
-  activeUsers: 980,
-  totalTrackings: 8420,
-  totalEmptyOrders: 320,
-  totalRevenue: 18450.75,
-};
-
-const usersGrowth = [120, 180, 260, 340, 420, 520, 640, 780, 900, 980, 1100, 1240];
-const ordersByDay = [32, 28, 40, 36, 44, 51, 48];
-const ordersLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 const sparklinePath = (values: number[], width = 280, height = 80) => {
   if (!values.length) return '';
@@ -34,35 +25,78 @@ const barHeights = (values: number[], height = 120) => {
   return values.map((v) => Math.max(2, (v / max) * height));
 };
 
+const startOfDay = (d: Date) => {
+  const out = new Date(d);
+  out.setHours(0, 0, 0, 0);
+  return out;
+};
+
 export const AnalyticsPage = () => {
-  const linePath = sparklinePath(usersGrowth);
-  const bars = barHeights(ordersByDay);
+  const { data: summary, isLoading: summaryLoading, isError: summaryError } = useQuery({
+    queryKey: ['dashboard', 'summary'],
+    queryFn: fetchSummary,
+  });
+
+  const { data: activity } = useQuery({
+    queryKey: ['dashboard', 'activity'],
+    queryFn: fetchActivity,
+  });
+
+  const { labels, values } = useMemo(() => {
+    const now = new Date();
+    const days = 7;
+    const buckets = new Map<number, number>();
+    for (let i = days - 1; i >= 0; i--) {
+      const d = startOfDay(new Date(now.getTime() - i * 24 * 60 * 60 * 1000));
+      buckets.set(d.getTime(), 0);
+    }
+
+    (activity ?? []).forEach((a) => {
+      const dt = a?.updatedAt ? new Date(a.updatedAt) : null;
+      if (!dt || Number.isNaN(dt.getTime())) return;
+      const key = startOfDay(dt).getTime();
+      if (!buckets.has(key)) return;
+      buckets.set(key, (buckets.get(key) ?? 0) + 1);
+    });
+
+    const keys = Array.from(buckets.keys()).sort((a, b) => a - b);
+    const values = keys.map((k) => buckets.get(k) ?? 0);
+    const labels = keys.map((k) => new Date(k).toLocaleDateString(undefined, { weekday: 'short' }));
+    return { labels, values };
+  }, [activity]);
+
+  const linePath = sparklinePath(values);
+  const bars = barHeights(values);
 
   return (
     <DashboardLayout title="Analytics">
       <div className="grid gap-4 md:grid-cols-3">
-        <MetricCard label="Total users" value={metrics.totalUsers.toLocaleString()} />
-        <MetricCard label="Active users" value={metrics.activeUsers.toLocaleString()} />
-        <MetricCard label="Total trackings" value={metrics.totalTrackings.toLocaleString()} />
-        <MetricCard label="Empty orders" value={metrics.totalEmptyOrders.toLocaleString()} />
-        <MetricCard label="Total revenue" value={formatCurrency(metrics.totalRevenue)} />
+        {summaryLoading && <MetricCard label="Active trackings" value="Loading…" />}
+        {summaryError && <MetricCard label="Active trackings" value="—" />}
+        {!summaryLoading && !summaryError && (
+          <>
+            <MetricCard label="Active trackings" value={(summary?.activeTrackings ?? 0).toLocaleString()} />
+            <MetricCard label="Empty orders" value={(summary?.emptyOrders ?? 0).toLocaleString()} />
+            <MetricCard label="Credit balance" value={summary?.balance != null ? formatCurrency(summary.balance) : '—'} />
+          </>
+        )}
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
         <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="mb-2 flex items-center justify-between">
             <div>
-              <p className="text-sm font-semibold text-slate-600">Users growth</p>
-              <p className="text-xs text-slate-500">Mock data</p>
+              <p className="text-sm font-semibold text-slate-600">Activity trend</p>
+              <p className="text-xs text-slate-500">Last 7 days</p>
             </div>
           </div>
           <svg viewBox="0 0 280 80" className="h-24 w-full" role="img" aria-label="Users growth sparkline">
             <path d={linePath} fill="none" stroke="#0ea5e9" strokeWidth={3} strokeLinecap="round" />
-            {usersGrowth.map((v, i) => {
-              const max = Math.max(...usersGrowth);
-              const min = Math.min(...usersGrowth);
+            {values.map((v, i) => {
+              const max = Math.max(...values);
+              const min = Math.min(...values);
               const span = max === min ? 1 : max - min;
-              const x = usersGrowth.length > 1 ? (i * 280) / (usersGrowth.length - 1) : 0;
+              const x = values.length > 1 ? (i * 280) / (values.length - 1) : 0;
               const y = 80 - ((v - min) / span) * 80;
               return <circle key={i} cx={x} cy={y} r={3} fill="#0ea5e9" />;
             })}
@@ -72,8 +106,8 @@ export const AnalyticsPage = () => {
         <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="mb-2 flex items-center justify-between">
             <div>
-              <p className="text-sm font-semibold text-slate-600">Orders by day</p>
-              <p className="text-xs text-slate-500">Trackings + empty orders (mock)</p>
+              <p className="text-sm font-semibold text-slate-600">Activity by day</p>
+              <p className="text-xs text-slate-500">Events in dashboard feed</p>
             </div>
           </div>
           <div className="flex items-end gap-3 h-36">
@@ -82,9 +116,9 @@ export const AnalyticsPage = () => {
                 <div
                   className="w-full rounded-md bg-sky-500/80"
                   style={{ height: `${h}px`, minHeight: '8px' }}
-                  aria-label={`${ordersLabels[i]}: ${ordersByDay[i]} orders`}
+                  aria-label={`${labels[i]}: ${values[i]} events`}
                 />
-                <span>{ordersLabels[i]}</span>
+                <span>{labels[i]}</span>
               </div>
             ))}
           </div>

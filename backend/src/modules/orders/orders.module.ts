@@ -17,7 +17,7 @@ import { DesignStorageService } from '../designs/design-storage.service.js';
 @Module({
   imports: [TypeOrmModule.forFeature([Order]), JwtModule.register({}), CreditModule],
   controllers: [OrdersController, DesignsController],
-  providers: [OrdersService, AccessAuthGuard, LabelStorageService, ScanQueueService, ScanWorkerService, DesignsService, DesignStorageService],
+    providers: [OrdersService, AccessAuthGuard, ScanQueueService, ScanWorkerService, DesignsService, DesignStorageService],
   exports: [OrdersService, TypeOrmModule],
 })
 export class OrdersModule {}

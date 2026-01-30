@@ -1,11 +1,11 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { DashboardLayout } from '../../components/DashboardLayout';
 import { OrdersFilterBar } from '../../components/orders/OrdersFilterBar';
 import { OrdersTable, buildDefaultOrderColumns } from '../../components/orders/OrdersTable';
 import { EmptyState } from '../../components/EmptyState';
-import { fetchOrder, fetchOrders, Order, OrderStatus, OrderType, OrdersQueryParams, OrdersResponse, PaymentStatus, scanLabel } from '../../api/orders';
+import { fetchOrder, fetchOrders, Order, OrderStatus, OrderType, OrdersQueryParams, OrdersResponse, PaymentStatus } from '../../api/orders';
 import { OrderDetailModal } from '../../components/orders/OrderDetailModal';
 import { ImportLabelsModal } from '../../components/orders/ImportLabelsModal';
 import CreateDesignModal from '../../components/orders/CreateDesignModal';
@@ -49,7 +49,7 @@ const coerceNumber = (value: string | null, fallback: number): number => {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 };
 
-export const OrdersPage = () => {
+const OrdersPageBase = ({ view }: { view: OrdersView }) => {
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
@@ -57,10 +57,7 @@ export const OrdersPage = () => {
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [isCreateDesignOpen, setIsCreateDesignOpen] = useState(false);
-  const [importError, setImportError] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
-
-  const view: OrdersView = searchParams.get('view') === 'design' ? 'design' : 'standard';
 
   const queryState: OrdersQueryParams = useMemo(() => {
     const base: OrdersQueryParams = {
@@ -93,24 +90,13 @@ export const OrdersPage = () => {
     enabled: !!selectedOrderId,
   });
 
-  const importMutation = useMutation({
-    mutationFn: (payload: { trackingCode?: string; file?: File }) => scanLabel(payload),
-    onSuccess: () => {
-      setIsImportOpen(false);
-      setImportError(null);
-      void queryClient.invalidateQueries({ queryKey: ['orders'] });
-    },
-    onError: (err: any) => {
-      const message = err?.response?.data?.message ?? err?.message ?? 'Failed to import label';
-      setImportError(Array.isArray(message) ? message.join(', ') : message);
-    },
-  });
-
   const detailOrder = detailQuery.data ?? selectedOrder;
 
   const summary = useMemo(() => {
     const orders = (data?.data ?? []) as Order[];
-    const visible = view === 'design' ? orders : orders.filter((o) => o.orderType !== 'design');
+    const visible = view === 'design'
+      ? orders.filter((o) => o.orderType === 'design')
+      : orders.filter((o) => o.orderType !== 'design');
     const processing = visible.filter((o) => o.orderStatus === 'processing').length;
     const unpaid = visible.filter((o) => o.paymentStatus === 'unpaid').length;
     const errorCount = visible.filter((o) => o.orderStatus === 'error' || o.orderStatus === 'failed').length;
@@ -161,14 +147,15 @@ export const OrdersPage = () => {
   const handleResetFilters = () => {
     const next = new URLSearchParams();
     next.set('limit', String(DEFAULT_LIMIT));
-    next.set('view', view);
     if (view === 'design') next.set('orderType', 'design');
     setSearchParams(next, { replace: true });
   };
 
   const currentPage = data?.meta.page ?? queryState.page ?? 1;
   const allOrders = (data?.data ?? []) as Order[];
-  const visibleOrders = view === 'design' ? allOrders : allOrders.filter((order) => order.orderType !== 'design');
+  const visibleOrders = view === 'design'
+    ? allOrders.filter((order) => order.orderType === 'design')
+    : allOrders.filter((order) => order.orderType !== 'design');
   const totalCount = view === 'design' ? data?.meta.total ?? visibleOrders.length : visibleOrders.length;
   const totalPages = Math.max(1, Math.ceil(totalCount / (data?.meta.limit ?? queryState.limit ?? DEFAULT_LIMIT)));
 
@@ -176,12 +163,11 @@ export const OrdersPage = () => {
     if (visibleOrders.length === 0) return;
     setIsExporting(true);
     try {
-      const headers = ['Order ID', 'Order Type', 'Tracking Number', 'Carrier', 'Order Status', 'Payment Status', 'Created At'];
+      const headers = ['Order ID', 'Order Type', 'Tracking Number', 'Order Status', 'Payment Status', 'Created At'];
       const rows = visibleOrders.map((order) => [
         order.id,
         order.orderType,
         order.trackingCode ?? '',
-        order.carrier ?? '',
         order.orderStatus,
         order.paymentStatus,
         new Date(order.createdAt).toISOString(),
@@ -230,46 +216,8 @@ export const OrdersPage = () => {
     }
   }, []);
 
-  const switchView = useCallback(
-    (nextView: OrdersView) => {
-      if (nextView === view) return;
-      const next = new URLSearchParams(searchParams);
-      next.set('view', nextView);
-      next.set('page', '1');
-      if (nextView === 'design') {
-        next.set('orderType', 'design');
-      } else {
-        if (next.get('orderType') === 'design') {
-          next.delete('orderType');
-        }
-        next.delete('designSubtype');
-      }
-      setSearchParams(next, { replace: true });
-    },
-    [searchParams, setSearchParams, view],
-  );
-
   return (
-    <DashboardLayout title="Orders">
-      <div className="flex flex-wrap items-center gap-2">
-        {[
-          { key: 'standard', label: 'Orders', description: 'Tracking + fulfillment', value: 'standard' as OrdersView },
-          { key: 'design', label: 'Design Orders', description: 'Creative & print jobs', value: 'design' as OrdersView },
-        ].map((tab) => {
-          const isActive = view === tab.value;
-          return (
-            <button
-              key={tab.key}
-              type="button"
-              onClick={() => switchView(tab.value)}
-              className={`flex items-center gap-2 rounded-lg border px-4 py-2 text-left text-sm font-semibold shadow-sm transition ${isActive ? 'border-slate-900 bg-slate-900 text-white shadow' : 'border-slate-200 bg-white text-slate-800 hover:border-slate-300'}`}
-            >
-              <span>{tab.label}</span>
-              <span className={`text-xs ${isActive ? 'text-slate-100' : 'text-slate-500'}`}>{tab.description}</span>
-            </button>
-          );
-        })}
-      </div>
+    <DashboardLayout title={view === 'design' ? 'Design' : 'Orders'}>
 
       <div className="mt-4 flex flex-wrap items-center gap-2">
         {view === 'design' ? (
@@ -286,12 +234,9 @@ export const OrdersPage = () => {
           <button
             type="button"
             className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-slate-800"
-            onClick={() => {
-              setImportError(null);
-              setIsImportOpen(true);
-            }}
+            onClick={() => setIsImportOpen(true)}
           >
-            Import Labels
+            Import Labels (Excel)
           </button>
         )}
         <button
@@ -474,17 +419,17 @@ export const OrdersPage = () => {
       <OrderDetailModal open={isDetailOpen} order={detailOrder} onClose={closeDetail} isLoading={detailQuery.isFetching} />
       <ImportLabelsModal
         open={isImportOpen}
-        onClose={() => {
+        onClose={() => setIsImportOpen(false)}
+        onSubmit={(_rows) => {
           setIsImportOpen(false);
-          setImportError(null);
+          void queryClient.invalidateQueries({ queryKey: ['orders'], exact: false });
         }}
-        onSubmit={(payload) => {
-          const row = payload && payload.length > 0 ? payload[0] : null;
-          importMutation.mutate({ file: row?.file, trackingCode: row?.trackingNumber });
-        }}
-        isSubmitting={importMutation.isPending}
       />
       <CreateDesignModal open={isCreateDesignOpen} onClose={() => setIsCreateDesignOpen(false)} />
     </DashboardLayout>
   );
 };
+
+export const OrdersPage = () => <OrdersPageBase view="standard" />;
+
+export const DesignOrdersPage = () => <OrdersPageBase view="design" />;

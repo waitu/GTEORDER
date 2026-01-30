@@ -56,6 +56,24 @@ export type BalanceTransaction = {
   createdAt: string;
 };
 
+export type CreditTopupStatus = 'pending' | 'approved' | 'rejected';
+export type CreditTopupMethod = 'pingpong_manual';
+
+export type AdminCreditTopup = {
+  id: string;
+  user: { id: string; email?: string | null };
+  amount: number;
+  paymentMethod: CreditTopupMethod;
+  transferNote: string;
+  note?: string | null;
+  status: CreditTopupStatus;
+  adminId?: string | null;
+  adminNote?: string | null;
+  createdAt: string;
+  reviewedAt?: string | null;
+  billImageUrl: string;
+};
+
 export type AdminOrder = Order;
 
 export type AdminOrdersResponse = OrdersResponse & { data: AdminOrder[] };
@@ -117,6 +135,20 @@ export const fetchAdminUser = async (id: string) => {
 export const fetchUserCreditHistory = async (id: string): Promise<BalanceTransaction[]> => {
   const { data } = await http.get<BalanceTransaction[]>(`/admin/users/${id}/credit/transactions`);
   return data ?? [];
+};
+
+export const fetchAdminCreditTopups = async (status?: CreditTopupStatus): Promise<AdminCreditTopup[]> => {
+  const query = status ? `?status=${encodeURIComponent(status)}` : '';
+  const { data } = await http.get<AdminCreditTopup[]>(`/api/admin/credits/topups${query}`);
+  return data ?? [];
+};
+
+export const approveCreditTopup = async (id: string) => {
+  await http.post(`/api/admin/credits/topups/${id}/approve`);
+};
+
+export const rejectCreditTopup = async (id: string, adminNote: string) => {
+  await http.post(`/api/admin/credits/topups/${id}/reject`, { adminNote });
 };
 
 export const adjustAdminUserCredit = async (id: string, payload: { amount: number; direction: 'credit' | 'debit'; reason?: string; note?: string }) => {

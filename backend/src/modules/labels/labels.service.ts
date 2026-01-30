@@ -63,14 +63,16 @@ export class LabelsService {
     if (!base.labelFileUrl?.trim()) {
       return { ...base, status: 'invalid', error: 'labelFileUrl required' };
     }
-    // Keep tracking/carrier as provided for scan labels so preview shows the user data; they remain optional.
-    if (base.serviceType === LabelServiceType.SCAN) {
-      return { ...base, status: 'valid', error: undefined };
+    // Carrier is fixed to USPS; users no longer provide it.
+    const withCarrier: ParsedRow = { ...base, carrier: (base.carrier?.trim() ? base.carrier : 'USPS') };
+    // Scan is temporarily disabled.
+    if (withCarrier.serviceType === LabelServiceType.SCAN) {
+      return { ...withCarrier, status: 'invalid', error: 'Scan is temporarily disabled' };
     }
-    if (!base.trackingNumber?.trim() || !base.carrier?.trim()) {
-      return { ...base, status: 'invalid', error: 'trackingNumber and carrier required' };
+    if (!withCarrier.trackingNumber?.trim()) {
+      return { ...withCarrier, status: 'invalid', error: 'trackingNumber required' };
     }
-    return { ...base, status: 'valid', error: undefined };
+    return { ...withCarrier, status: 'valid', error: undefined };
   }
 
   private buildMetaMap(metaJson?: string): ImageMeta[] {
@@ -120,7 +122,7 @@ export class LabelsService {
         labelFileUrl: '',
         serviceType,
         trackingNumber: meta.trackingNumber ?? null,
-        carrier: meta.carrier ?? null,
+        carrier: 'USPS',
         clientRequestId: meta.clientRequestId ?? null,
         sourceFileName: meta.sourceFileName ?? file.originalname,
         status: 'invalid',
@@ -157,7 +159,7 @@ export class LabelsService {
         serviceType: validated.serviceType,
         labelFileUrl: validated.labelFileUrl,
         trackingNumber: validated.trackingNumber ?? null,
-        carrier: validated.carrier ?? null,
+        carrier: 'USPS',
         status: LabelStatus.PENDING,
         sourceFileName: validated.sourceFileName,
         clientRequestId: validated.clientRequestId ?? null,
@@ -200,17 +202,44 @@ export class LabelsService {
       .filter((r: Record<string, any>) => Object.values(r).some((v) => v !== undefined && v !== null && v.toString().trim().length > 0));
 
     const parsed: ParsedRow[] = normalizedRows.map((row: Record<string, any>) => {
-      const serviceType = this.normalizeServiceType(this.firstValue(row, ['servicetype', 'type', 'service'])) ?? LabelServiceType.SCAN;
+      const serviceValue = (this.firstValue(row, ['servicetype', 'type', 'service']) ?? '').toString().trim();
+      const serviceTypeNormalized = this.normalizeServiceType(serviceValue);
       const labelFileUrl = (this.firstValue(row, ['label', 'url', 'labelfileurl']) ?? '').toString().trim();
       const trackingNumber = (this.firstValue(row, ['trackingnumber', 'tracking number', 'tracking']))?.toString() ?? '';
-      const carrier = (this.firstValue(row, ['carrier', 'courier', 'tracking carrier']))?.toString() ?? '';
       const clientRequestId = this.firstValue(row, ['clientrequestid', 'requestid'])?.toString() || undefined;
       const sourceFileName = this.firstValue(row, ['sourcefilename', 'filename'])?.toString() || undefined;
+
+      // Provide clearer errors when serviceType is missing/unknown.
+      if (!serviceValue) {
+        return {
+          labelFileUrl,
+          serviceType: LabelServiceType.ACTIVE,
+          trackingNumber,
+          carrier: 'USPS',
+          clientRequestId,
+          sourceFileName,
+          status: 'invalid',
+          error: 'serviceType required',
+        };
+      }
+      if (!serviceTypeNormalized) {
+        return {
+          labelFileUrl,
+          serviceType: LabelServiceType.ACTIVE,
+          trackingNumber,
+          carrier: 'USPS',
+          clientRequestId,
+          sourceFileName,
+          status: 'invalid',
+          error: 'serviceType must be active or empty',
+        };
+      }
+
       return this.validateRow({
         labelFileUrl,
-        serviceType,
+        serviceType: serviceTypeNormalized,
         trackingNumber,
-        carrier,
+        carrier: 'USPS',
         clientRequestId,
         sourceFileName,
         status: 'invalid',
@@ -259,7 +288,7 @@ export class LabelsService {
         serviceType: row.serviceType,
         labelFileUrl: row.labelFileUrl,
         trackingNumber: row.trackingNumber ?? null,
-        carrier: row.carrier ?? null,
+        carrier: 'USPS',
         status: LabelStatus.PENDING,
         sourceFileName: row.sourceFileName ?? null,
         clientRequestId: row.clientRequestId ?? null,

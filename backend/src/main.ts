@@ -8,9 +8,32 @@ import { AppModule } from './modules/app.module.js';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
 
-  // Dev CORS: allow frontend on 5173 with credentials
+  // Dev CORS: allow localhost ports (vite may auto-pick 5174+ if 5173 is busy)
+  const isProd = (process.env.NODE_ENV ?? 'development') === 'production';
+  const explicitOrigins = (process.env.FRONTEND_ORIGIN ?? 'http://localhost:5173')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+
   app.enableCors({
-    origin: process.env.FRONTEND_ORIGIN ?? 'http://localhost:5173',
+    origin: (origin, callback) => {
+      if (!origin) {
+        return callback(null, true);
+      }
+
+      if (explicitOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+
+      if (!isProd) {
+        const isLocalhostHttp = /^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin);
+        if (isLocalhostHttp) {
+          return callback(null, true);
+        }
+      }
+
+      return callback(new Error(`CORS blocked for origin: ${origin}`), false);
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin'],

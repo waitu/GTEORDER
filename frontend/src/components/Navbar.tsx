@@ -26,8 +26,8 @@ const marketingNavItems: NavItem[] = [
 
 const appNavItems = [
   { label: 'Dashboard', to: '/dashboard' },
-  // { label: 'Design Orders', to: '/orders?view=design' },
   { label: 'Orders', to: '/orders' },
+  { label: 'Design', to: '/design' },
   { label: 'Credit', to: '/balance' },
   { label: 'Pricing', to: '/pricing' },
 ];
@@ -36,6 +36,7 @@ const adminNavItems = [
   { label: 'Dashboard', to: '/admin' },
   // { label: 'Design Orders', to: '/admin/orders?view=design' },
   { label: 'Orders', to: '/admin/orders' },
+  { label: 'Top-ups', to: '/admin/credit-topups' },
   { label: 'Requests', to: '/admin/requests' },
   { label: 'Audits', to: '/admin/audits' },
 ];

@@ -1,4 +1,4 @@
-import { Body, Controller, Post, Req, UploadedFile, UploadedFiles, UseGuards, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, GoneException, Post, Req, UploadedFile, UploadedFiles, UseGuards, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { Request } from 'express';
 
@@ -15,8 +15,7 @@ export class LabelsController {
   @Post('import/image')
   @UseInterceptors(FilesInterceptor('files'))
   async importImages(@Req() req: Request & { user?: any }, @UploadedFiles() files: Uploaded[], @Body() dto: ImageImportDto) {
-    const userId = req.user?.sub;
-    return this.labelsService.importImages(userId, files ?? [], dto.meta);
+    throw new GoneException('Image/PDF upload import has been removed. Please import labels via Excel instead.');
   }
 
   @Post('import/excel')
