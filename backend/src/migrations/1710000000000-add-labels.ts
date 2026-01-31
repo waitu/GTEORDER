@@ -4,12 +4,14 @@ export class AddLabels1710000000000 implements MigrationInterface {
   name = 'AddLabels1710000000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
+    // Ensure UUID generation function available for DEFAULT uuid_generate_v4()
+    await queryRunner.query(`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`);
     await queryRunner.query(`DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'labels_import_type_enum') THEN CREATE TYPE "public"."labels_import_type_enum" AS ENUM('image','excel'); END IF; END$$;`);
     await queryRunner.query(`DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'labels_service_type_enum') THEN CREATE TYPE "public"."labels_service_type_enum" AS ENUM('scan','active','empty'); END IF; END$$;`);
     await queryRunner.query(`DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'labels_status_enum') THEN CREATE TYPE "public"."labels_status_enum" AS ENUM('pending','processing','completed','failed'); END IF; END$$;`);
     await queryRunner.query(`DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'labels') THEN
       CREATE TABLE "labels" (
-        "id" uuid NOT NULL,
+        "id" uuid NOT NULL DEFAULT uuid_generate_v4(),
         "user_id" uuid NOT NULL,
         "import_type" "public"."labels_import_type_enum" NOT NULL,
         "service_type" "public"."labels_service_type_enum" NOT NULL,
