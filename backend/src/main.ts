@@ -10,7 +10,8 @@ async function bootstrap() {
 
   // Dev CORS: allow localhost ports (vite may auto-pick 5174+ if 5173 is busy)
   const isProd = (process.env.NODE_ENV ?? 'development') === 'production';
-  const explicitOrigins = (process.env.FRONTEND_ORIGIN ?? 'http://localhost:5173')
+  const defaultOrigins = isProd ? 'https://sclabel.io,https://www.sclabel.io' : 'http://localhost:5173';
+  const explicitOrigins = (process.env.FRONTEND_ORIGIN ?? defaultOrigins)
     .split(',')
     .map((value) => value.trim())
     .filter(Boolean);
