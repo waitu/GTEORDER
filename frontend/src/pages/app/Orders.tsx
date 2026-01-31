@@ -285,6 +285,7 @@ const OrdersPageBase = ({ view }: { view: OrdersView }) => {
             key={card.label}
             type="button"
             className={`rounded-lg px-4 py-3 text-left shadow-sm transition hover:-translate-y-0.5 ${card.containerClass}`}
+            onClick={card.onClick}
           >
             <p className={`text-xs font-semibold uppercase tracking-wide ${card.labelClass}`}>{card.label}</p>
             <p className={`${card.valueClass}`}>{card.value ?? '—'}</p>

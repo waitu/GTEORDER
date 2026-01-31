@@ -84,6 +84,7 @@ export class DashboardController {
         .where('o.user_id = :userId', { userId })
         .andWhere('o.order_type = :type', { type: OrderType.EMPTY_PACKAGE })
         .andWhere('o.archived = false')
+        .andWhere('o.order_status IN (:...statuses)', { statuses: [OrderStatus.PENDING, OrderStatus.PROCESSING] })
         .getCount(),
       this.balanceService.getBalance(userId),
     ]);
@@ -118,7 +119,7 @@ export class DashboardController {
 
     const combined = orders.map((o) => ({
       id: o.id,
-      type: o.orderType === OrderType.EMPTY_PACKAGE ? ('empty-order' as const) : ('tracking' as const),
+      orderType: o.orderType,
       ref: o.trackingCode ?? o.id,
       status: o.orderStatus,
       amount: o.totalCost,

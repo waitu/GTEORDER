@@ -95,6 +95,13 @@ const resolveAssets = (order: Order) => {
   return unique;
 };
 
+const resolvePrimaryResultUrl = (order: Order) => {
+  const candidates = order.orderType === 'design'
+    ? [order.resultUrl, order.labelUrl, order.labelImageUrl, ...(order.assetUrls ?? [])]
+    : [order.labelUrl, order.labelImageUrl, order.resultUrl, ...(order.assetUrls ?? [])];
+  return (candidates.filter(Boolean)[0] as string | undefined) ?? null;
+};
+
 const isImageUrl = (url: string) => /\.(png|jpe?g|gif|webp)$/i.test(url.split('?')[0]);
 
 type AssetsPreviewPayload<T extends Order = Order> = {
@@ -177,7 +184,7 @@ export const buildDefaultOrderColumns = <T extends Order = Order>(options?: {
       key: 'resultUrl',
       header: 'Result',
       render: (order) => {
-        const url = order.resultUrl;
+        const url = resolvePrimaryResultUrl(order);
         if (!url) return <span className="text-xs text-slate-400">—</span>;
         if (isImageUrl(url)) {
           return (

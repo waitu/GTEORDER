@@ -71,12 +71,12 @@ export const AnalyticsPage = () => {
   return (
     <DashboardLayout title="Analytics">
       <div className="grid gap-4 md:grid-cols-3">
-        {summaryLoading && <MetricCard label="Active trackings" value="Loading…" />}
-        {summaryError && <MetricCard label="Active trackings" value="—" />}
+        {summaryLoading && <MetricCard label="In-progress trackings" value="Loading…" />}
+        {summaryError && <MetricCard label="In-progress trackings" value="—" />}
         {!summaryLoading && !summaryError && (
           <>
-            <MetricCard label="Active trackings" value={(summary?.activeTrackings ?? 0).toLocaleString()} />
-            <MetricCard label="Empty orders" value={(summary?.emptyOrders ?? 0).toLocaleString()} />
+            <MetricCard label="In-progress trackings" value={(summary?.activeTrackings ?? 0).toLocaleString()} />
+            <MetricCard label="In-progress empty orders" value={(summary?.emptyOrders ?? 0).toLocaleString()} />
             <MetricCard label="Credit balance" value={summary?.balance != null ? formatCurrency(summary.balance) : '—'} />
           </>
         )}

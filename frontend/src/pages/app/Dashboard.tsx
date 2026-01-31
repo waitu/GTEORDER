@@ -1,9 +1,11 @@
 import { useQuery } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import { DashboardLayout } from '../../components/DashboardLayout';
 import { Table } from '../../components/Table';
 import { fetchActivity, fetchSummary } from '../../api/dashboard';
 
 export const DashboardPage = () => {
+  const navigate = useNavigate();
   const { data: summary, isLoading: summaryLoading, isError: summaryError } = useQuery({
     queryKey: ['summary'],
     queryFn: fetchSummary,
@@ -21,18 +23,30 @@ export const DashboardPage = () => {
         {summaryError && <div className="rounded-xl border border-red-100 bg-red-50 p-5 text-sm text-red-700">Could not load summary.</div>}
         {!summaryLoading && !summaryError && (
           <>
-            <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+            <button
+              type="button"
+              className="rounded-xl border border-slate-200 bg-white p-5 text-left shadow-sm hover:border-slate-300"
+              onClick={() => navigate('/orders?orderType=active_tracking')}
+            >
               <p className="text-sm font-semibold text-slate-600">Active Trackings</p>
               <p className="mt-2 text-2xl font-bold text-ink">{summary?.activeTrackings ?? '—'}</p>
-            </div>
-            <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-              <p className="text-sm font-semibold text-slate-600">Empty Orders</p>
+            </button>
+            <button
+              type="button"
+              className="rounded-xl border border-slate-200 bg-white p-5 text-left shadow-sm hover:border-slate-300"
+              onClick={() => navigate('/orders?orderType=empty_package')}
+            >
+              <p className="text-sm font-semibold text-slate-600">Empty Package</p>
               <p className="mt-2 text-2xl font-bold text-ink">{summary?.emptyOrders ?? '—'}</p>
-            </div>
-            <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+            </button>
+            <button
+              type="button"
+              className="rounded-xl border border-slate-200 bg-white p-5 text-left shadow-sm hover:border-slate-300"
+              onClick={() => navigate('/balance')}
+            >
               <p className="text-sm font-semibold text-slate-600">Credit Balance</p>
               <p className="mt-2 text-2xl font-bold text-ink">{summary?.balance != null ? `$${summary.balance.toFixed(2)}` : '—'}</p>
-            </div>
+            </button>
           </>
         )}
       </div>
@@ -46,7 +60,11 @@ export const DashboardPage = () => {
         {!activityLoading && !activityError && (
           <Table
             columns={[
-              { key: 'type', header: 'Type', render: (row: any) => (row.type === 'tracking' ? 'Tracking' : 'Empty Order') },
+              {
+                key: 'orderType',
+                header: 'Type',
+                render: (row: any) => (row.orderType ? String(row.orderType).replaceAll('_', ' ') : '—'),
+              },
               { key: 'ref', header: 'Reference' },
               { key: 'status', header: 'Status', render: (row: any) => row.status ?? '—' },
               { key: 'amount', header: 'Amount', render: (row: any) => (row.amount != null ? `$${row.amount.toFixed(2)}` : '—') },

@@ -16,7 +16,7 @@ export type Tracking = {
 
 export type Activity = {
   id?: string;
-  type: 'tracking' | 'empty-order';
+  orderType: 'active_tracking' | 'empty_package' | 'design' | (string & {});
   ref: string;
   status?: string;
   amount?: number;

@@ -46,9 +46,18 @@ const buildAssets = (order?: Order | null) => {
   return Array.from(new Set(assets));
 };
 
+const resolvePrimaryResultUrl = (order?: Order | null) => {
+  if (!order) return null;
+  const candidates = order.orderType === 'design'
+    ? [order.resultUrl, order.labelUrl, order.labelImageUrl, ...(order.assetUrls ?? [])]
+    : [order.labelUrl, order.labelImageUrl, order.resultUrl, ...(order.assetUrls ?? [])];
+  return (candidates.filter(Boolean)[0] as string | undefined) ?? null;
+};
+
 export const OrderDetailModal = ({ open, order, onClose, isLoading }: OrderDetailModalProps) => {
   if (!open) return null;
   const assets = buildAssets(order);
+  const primaryResultUrl = resolvePrimaryResultUrl(order);
   const previewUrls = assets.filter((url) => isImageUrl(url));
   const isDesign = order?.orderType === 'design';
   const designLabel = order?.designSubtype ? designSubtypeLabels[order.designSubtype] ?? order.designSubtype : null;
@@ -114,29 +123,29 @@ export const OrderDetailModal = ({ open, order, onClose, isLoading }: OrderDetai
         <div className="mt-6 grid gap-4 md:grid-cols-2">
           <div className="rounded-xl border border-slate-100 bg-slate-50 p-4 text-sm">
             <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Result</p>
-            {order?.resultUrl ? (
-              isImageUrl(order.resultUrl) ? (
+            {primaryResultUrl ? (
+              isImageUrl(primaryResultUrl) ? (
                 <div className="mt-3 flex flex-col gap-3">
                   <button
                     type="button"
                     className="group overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"
-                    onClick={() => setLightboxSrc(order.resultUrl!)}
+                    onClick={() => setLightboxSrc(primaryResultUrl)}
                     title="Open preview"
                   >
-                    <img src={order.resultUrl} alt="Result" className="h-64 w-full object-cover transition group-hover:scale-[1.02]" />
+                    <img src={primaryResultUrl} alt="Result" className="h-64 w-full object-cover transition group-hover:scale-[1.02]" />
                   </button>
                   <div className="flex flex-col gap-2 text-sm">
-                    <span className="break-all text-slate-700" title={order.resultUrl}>
-                      {order.resultUrl}
+                    <span className="break-all text-slate-700" title={primaryResultUrl}>
+                      {primaryResultUrl}
                     </span>
                     <div className="flex flex-wrap gap-2 text-xs">
-                      <a className="rounded border border-slate-200 px-2 py-1 font-semibold hover:border-slate-300" href={order.resultUrl} target="_blank" rel="noreferrer">
+                      <a className="rounded border border-slate-200 px-2 py-1 font-semibold hover:border-slate-300" href={primaryResultUrl} target="_blank" rel="noreferrer">
                         Open original
                       </a>
-                      <a className="rounded border border-slate-200 px-2 py-1 font-semibold hover:border-slate-300" href={order.resultUrl} download>
+                      <a className="rounded border border-slate-200 px-2 py-1 font-semibold hover:border-slate-300" href={primaryResultUrl} download>
                         Download
                       </a>
-                      <button type="button" className="rounded border border-slate-200 px-2 py-1 font-semibold hover:border-slate-300" onClick={() => setLightboxSrc(order.resultUrl!)}>
+                      <button type="button" className="rounded border border-slate-200 px-2 py-1 font-semibold hover:border-slate-300" onClick={() => setLightboxSrc(primaryResultUrl)}>
                         Zoom
                       </button>
                     </div>
@@ -144,14 +153,14 @@ export const OrderDetailModal = ({ open, order, onClose, isLoading }: OrderDetai
                 </div>
               ) : (
                 <a
-                  href={order.resultUrl}
+                  href={primaryResultUrl}
                   target="_blank"
                   rel="noreferrer"
                   className="mt-3 inline-flex max-w-full items-center gap-2 text-sm font-medium text-sky-700 underline-offset-4 hover:text-sky-900 hover:underline"
-                  title={order.resultUrl}
+                  title={primaryResultUrl}
                 >
-                  <span className="break-all">{order.resultUrl}</span>
-                  <span className="rounded-full bg-white px-2 py-0.5 text-xs font-semibold text-slate-600">{extractDomain(order.resultUrl)}</span>
+                  <span className="break-all">{primaryResultUrl}</span>
+                  <span className="rounded-full bg-white px-2 py-0.5 text-xs font-semibold text-slate-600">{extractDomain(primaryResultUrl)}</span>
                 </a>
               )
             ) : (
