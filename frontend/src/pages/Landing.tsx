@@ -195,18 +195,42 @@ export const LandingPage = () => {
             <h2 className="mt-3 text-3xl font-bold text-slate-900">See how much you can make</h2>
             <p className="mt-2 text-slate-600">Unlock better deals as you grow. Prices shown per label scanned.</p>
           </div>
-          <div className="mt-10 grid gap-6 md:grid-cols-3 lg:grid-cols-5">
-            {pricingTiers.map((tier) => (
-              <div key={tier.name} className="rounded-2xl border border-slate-100 bg-white p-5 text-center shadow-md shadow-sky-100/60">
+            <div className="mt-10 grid gap-6 md:grid-cols-3 lg:grid-cols-5">
+            {pricingTiers.map((tier) => {
+              // Nếu Tailwind không build được class động (from/to...), badge sẽ bị nền trắng + chữ trắng.
+              // Dùng điều kiện với class literal để Tailwind luôn nhận ra.
+              const accent =
+              tier.name === 'Standard'
+                ? 'from-sky-500 to-emerald-500'
+                : tier.name === 'Metal'
+                ? 'from-sky-600 to-emerald-500'
+                : tier.name === 'Silver'
+                  ? 'from-sky-700 to-emerald-500'
+                  : tier.name === 'Gold'
+                  ? 'from-sky-800 to-emerald-500'
+                  : 'from-emerald-600 to-sky-600';
+
+              return (
+              <div
+                key={tier.name}
+                className="rounded-2xl border border-slate-100 bg-white p-5 text-center shadow-md shadow-sky-100/60"
+              >
                 <p className="text-sm font-semibold text-slate-500">{tier.range}</p>
                 <h3 className="mt-2 text-xl font-bold text-slate-900">{tier.name}</h3>
-                <div className={`mt-4 inline-flex rounded-full bg-gradient-to-r ${tier.accent} px-4 py-1 text-sm font-semibold text-white`}>
-                  {tier.price} / label
+
+                <div
+                className={`mt-4 inline-flex rounded-full bg-emerald-600 bg-gradient-to-r ${accent} px-4 py-1 text-sm font-semibold text-white`}
+                >
+                {tier.price} / label
                 </div>
-                <button className="mt-6 w-full rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-900 hover:border-emerald-300">Start import tracking</button>
+
+                <button className="mt-6 w-full rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-900 hover:border-emerald-300">
+                Start import tracking
+                </button>
               </div>
-            ))}
-          </div>
+              );
+            })}
+            </div>
         </section>
 
         <section className="bg-gradient-to-r from-sky-900 to-emerald-900 py-16 text-white">
