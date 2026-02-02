@@ -243,7 +243,7 @@ const PricingCard = ({
           to={`/balance?package=${encodeURIComponent(planKey)}`}
           className={
             featured
-              ? 'block w-full rounded-xl bg-sky-600 px-4 py-3 text-center text-sm font-semibold shadow-sm transition hover:bg-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2'
+              ? 'block w-full rounded-xl bg-sky-600 px-4 py-3 text-center text-sm font-semibold shadow-sm transition hover:bg-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 border border-slate-200'
               : 'block w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-center text-sm font-semibold text-slate-900 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 focus-visible:ring-offset-2'
           }
         >
