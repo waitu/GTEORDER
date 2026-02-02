@@ -1,6 +1,15 @@
 import { getDeviceToken, http, setAccessToken, setDeviceToken, setRefreshToken, logout as clearAuthState } from './http';
 
-type LoginResponse = { needOtp?: boolean; otpRequestId?: string; expiresAt?: string };
+type LoginResponse = {
+  needOtp?: boolean;
+  otpRequestId?: string;
+  expiresAt?: string;
+  // Trusted-device login may return tokens directly.
+  accessToken?: string;
+  refreshToken?: string;
+  deviceToken?: string;
+  trustedDevice?: boolean;
+};
 type VerifyOtpResponse = {
   accessToken?: string;
   refreshToken?: string;
@@ -23,6 +32,18 @@ export async function loginWithEmail(email: string) {
   const { platform, timezone } = getDeviceContext();
   const deviceToken = getDeviceToken() ?? undefined;
   const { data } = await http.post<LoginResponse>('/auth/login', { email, deviceToken, platform, timezone });
+
+  // If backend returned tokens (trusted device flow), persist them the same way as OTP verify.
+  if (data.accessToken) {
+    setAccessToken(data.accessToken);
+  }
+  if (data.refreshToken) {
+    setRefreshToken(data.refreshToken);
+  }
+  if (data.deviceToken) {
+    setDeviceToken(data.deviceToken);
+  }
+
   return data;
 }
 

@@ -6,6 +6,8 @@ export type CreditTopupMethod = 'pingpong_manual';
 export type UserCreditTopup = {
   id: string;
   amount: number;
+  creditAmount?: number;
+  packageKey?: string | null;
   method: CreditTopupMethod;
   status: CreditTopupStatus;
   transferNote: string;
@@ -29,6 +31,24 @@ export const createPingPongTopup = async (params: {
   fd.append('bill_image', params.billImage);
 
   const { data } = await http.post<UserCreditTopup>('/api/credits/topup/pingpong', fd, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+  return data;
+};
+
+export const createPingPongPackageTopup = async (params: {
+  packageKey: string;
+  transferNote: string;
+  note?: string;
+  billImage: File;
+}): Promise<UserCreditTopup> => {
+  const fd = new FormData();
+  fd.append('packageKey', params.packageKey);
+  fd.append('transferNote', params.transferNote);
+  if (params.note) fd.append('note', params.note);
+  fd.append('bill_image', params.billImage);
+
+  const { data } = await http.post<UserCreditTopup>('/api/credits/topup/pingpong/package', fd, {
     headers: { 'Content-Type': 'multipart/form-data' },
   });
   return data;

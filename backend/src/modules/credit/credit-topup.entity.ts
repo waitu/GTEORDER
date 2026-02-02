@@ -34,6 +34,14 @@ export class CreditTopup {
   @Column({ type: 'numeric', precision: 12, scale: 2 })
   amount!: number;
 
+  // Credits that will be granted on approval. For legacy/manual topups, this equals `amount`.
+  @Column({ name: 'credit_amount', type: 'numeric', precision: 12, scale: 2 })
+  creditAmount!: number;
+
+  // Optional key of the pricing package used to compute (paid amount -> credit amount).
+  @Column({ name: 'package_key', type: 'varchar', nullable: true })
+  packageKey?: string | null;
+
   @Column({ name: 'payment_method', type: 'varchar' })
   paymentMethod!: CreditTopupPaymentMethod;
 

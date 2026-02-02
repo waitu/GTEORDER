@@ -1,9 +1,11 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { DashboardLayout } from '../../components/DashboardLayout';
 import { fetchBalance } from '../../api/dashboard';
 import { useAuth } from '../../context/AuthProvider';
-import { createPingPongTopup, fetchMyTopups, UserCreditTopup } from '../../api/creditTopups';
+import { createPingPongPackageTopup, createPingPongTopup, fetchMyTopups, UserCreditTopup } from '../../api/creditTopups';
+import { fetchPricing } from '../../api/pricing';
 
 const PINGPONG = {
   qrImageUrl: import.meta.env.VITE_PINGPONG_QR_IMAGE_URL as string | undefined,
@@ -32,22 +34,48 @@ const StatusBadge = ({ status }: { status: 'pending' | 'approved' | 'rejected' }
 export const BalancePage = () => {
   const queryClient = useQueryClient();
   const { user } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { data, isLoading, isError } = useQuery({ queryKey: ['balance'], queryFn: fetchBalance });
   const balanceValue = data?.balance;
 
-  const transferNote = useMemo(() => (user?.id ? `TOPUP_${user.id}` : ''), [user?.id]);
+  const pricingQuery = useQuery({ queryKey: ['pricing'], queryFn: fetchPricing });
+  const packages = pricingQuery.data?.topupPackages ?? {};
+
+  const [transferNote, setTransferNote] = useState<string>('');
+  useEffect(() => {
+    if (!user?.id) {
+      setTransferNote('');
+      return;
+    }
+    // Must start with TOPUP_<userId>, but should also be unique per submission.
+    const uniq = Math.random().toString(36).slice(2, 8).toUpperCase();
+    setTransferNote(`TOPUP_${user.id}_${uniq}`);
+  }, [user?.id]);
+
+  const [selectedPackageKey, setSelectedPackageKey] = useState<string | null>(null);
+
+  useEffect(() => {
+    const pkg = (searchParams.get('package') || '').trim().toLowerCase();
+    if (!pkg) return;
+    setSelectedPackageKey(pkg);
+  }, [searchParams]);
 
   const [amount, setAmount] = useState<string>('');
   const [note, setNote] = useState<string>('');
   const [billFile, setBillFile] = useState<File | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
 
+  const selectedPackage = selectedPackageKey ? packages[selectedPackageKey] : undefined;
+
+  useEffect(() => {
+    if (!selectedPackage) return;
+    setAmount(String(selectedPackage.price ?? ''));
+  }, [selectedPackageKey, selectedPackage?.price]);
+
   const topupsQuery = useQuery({ queryKey: ['credits', 'topups'], queryFn: fetchMyTopups });
 
   const createMutation = useMutation({
     mutationFn: async () => {
-      const amt = Number(amount);
-      if (!Number.isFinite(amt) || amt <= 0) throw new Error('Amount is required');
       if (!transferNote) throw new Error('Transfer note is not available (missing user id)');
       if (!billFile) throw new Error('Bill image is required');
 
@@ -58,6 +86,17 @@ export const BalancePage = () => {
         throw new Error('Bill image must be <= 5MB');
       }
 
+      if (selectedPackageKey && selectedPackage) {
+        return createPingPongPackageTopup({
+          packageKey: selectedPackageKey,
+          transferNote,
+          note: note.trim() ? note.trim() : undefined,
+          billImage: billFile,
+        });
+      }
+
+      const amt = Number(amount);
+      if (!Number.isFinite(amt) || amt <= 0) throw new Error('Amount is required');
       return createPingPongTopup({
         amount: amt,
         transferNote,
@@ -69,6 +108,12 @@ export const BalancePage = () => {
       setAmount('');
       setNote('');
       setBillFile(null);
+      setSelectedPackageKey(null);
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete('package');
+        return next;
+      });
       await queryClient.invalidateQueries({ queryKey: ['credits', 'topups'] });
     },
   });
@@ -143,6 +188,64 @@ export const BalancePage = () => {
 
               <div className="mt-4 rounded-lg border border-slate-200 bg-white p-4">
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Top-up form</p>
+
+                <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <div className="text-sm font-semibold text-slate-800">Choose a package (discounted)</div>
+                      <div className="text-xs text-slate-600">Optional — pick a package to receive discounted credits.</div>
+                    </div>
+                    <button
+                      type="button"
+                      className="rounded-lg border border-slate-200 bg-white px-3 py-1 text-sm font-semibold hover:bg-slate-50"
+                      onClick={() => {
+                        setSelectedPackageKey(null);
+                        setSearchParams((prev) => {
+                          const next = new URLSearchParams(prev);
+                          next.delete('package');
+                          return next;
+                        });
+                      }}
+                    >
+                      Use custom amount
+                    </button>
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {Object.entries(packages).map(([k, p]) => (
+                      <button
+                        key={k}
+                        type="button"
+                        className={
+                          selectedPackageKey === k
+                            ? 'rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold text-white'
+                            : 'rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700 hover:border-slate-300 hover:bg-white'
+                        }
+                        onClick={() => {
+                          setSelectedPackageKey(k);
+                          setSearchParams((prev) => {
+                            const next = new URLSearchParams(prev);
+                            next.set('package', k);
+                            return next;
+                          });
+                        }}
+                      >
+                        {k.toUpperCase()} · ${Number(p.price).toFixed(2)} → {Number(p.credits).toLocaleString()} credits
+                      </button>
+                    ))}
+                    {Object.keys(packages).length === 0 && (
+                      <div className="text-sm text-slate-600">No packages configured.</div>
+                    )}
+                  </div>
+
+                  {selectedPackage && (
+                    <div className="mt-3 text-sm text-slate-700">
+                      You pay <span className="font-semibold text-slate-900">${Number(selectedPackage.price).toFixed(2)}</span> and receive{' '}
+                      <span className="font-semibold text-slate-900">{Number(selectedPackage.credits).toLocaleString()}</span> credits.
+                    </div>
+                  )}
+                </div>
+
                 <div className="mt-3 grid gap-3">
                   <label className="grid gap-1">
                     <span className="text-sm font-semibold text-slate-700">Amount</span>
@@ -154,7 +257,11 @@ export const BalancePage = () => {
                       value={amount}
                       onChange={(e) => setAmount(e.target.value)}
                       placeholder="Enter amount"
+                      disabled={!!selectedPackage}
                     />
+                    {selectedPackage && (
+                      <span className="text-xs text-slate-500">Amount is locked to the selected package price.</span>
+                    )}
                   </label>
 
                   <label className="grid gap-1">
@@ -165,6 +272,32 @@ export const BalancePage = () => {
                       value={transferNote}
                       readOnly
                     />
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        className="rounded-lg border border-slate-200 bg-white px-3 py-1 text-sm font-semibold hover:bg-slate-50 disabled:opacity-60"
+                        disabled={!transferNote}
+                        onClick={async () => {
+                          if (!transferNote) return;
+                          await navigator.clipboard.writeText(transferNote);
+                        }}
+                      >
+                        Copy
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded-lg border border-slate-200 bg-white px-3 py-1 text-sm font-semibold hover:bg-slate-50 disabled:opacity-60"
+                        disabled={!user?.id}
+                        onClick={() => {
+                          if (!user?.id) return;
+                          const uniq = Math.random().toString(36).slice(2, 8).toUpperCase();
+                          setTransferNote(`TOPUP_${user.id}_${uniq}`);
+                        }}
+                      >
+                        Regenerate
+                      </button>
+                    </div>
+                    <span className="text-xs text-slate-500">Must start with <span className="font-mono">TOPUP_{user?.id ?? '...'}</span>.</span>
                   </label>
 
                   <label className="grid gap-1">

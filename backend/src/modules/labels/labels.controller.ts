@@ -20,9 +20,9 @@ export class LabelsController {
 
   @Post('import/excel')
   @UseInterceptors(FileInterceptor('file'))
-  async importExcel(@Req() req: Request & { user?: any }, @UploadedFile() file: Uploaded) {
+  async importExcel(@Req() req: Request & { user?: any }, @UploadedFile() file: Uploaded, @Body('serviceType') serviceType?: string) {
     const userId = req.user?.sub;
-    return this.labelsService.createExcelPreview(userId, file);
+    return this.labelsService.createExcelPreview(userId, file, serviceType);
   }
 
   @Post('import/excel/confirm')

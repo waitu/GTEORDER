@@ -1,5 +1,6 @@
 import { FormEvent, useState } from 'react';
 import { Link } from 'react-router-dom';
+import type { AxiosError } from 'axios';
 import { AuthLayout } from '../components/AuthLayout';
 import { FormField, Input } from '../components/FormField';
 import { useAuth } from '../context/AuthProvider';
@@ -25,7 +26,15 @@ export const LoginPage = () => {
       await login(email.trim());
       setInfo('Check your email for the login code');
     } catch (err) {
-      setError('Unable to send login code. Please try again.');
+      const axiosErr = err as AxiosError<any>;
+      const serverMessage = axiosErr?.response?.data?.message;
+      if (typeof serverMessage === 'string' && serverMessage.trim().length > 0) {
+        setError(serverMessage);
+      } else if (Array.isArray(serverMessage) && serverMessage.length > 0) {
+        setError(String(serverMessage[0]));
+      } else {
+        setError('Unable to send login code. Please try again.');
+      }
       console.error(err);
     } finally {
       setLoading(false);

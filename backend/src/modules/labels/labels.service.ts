@@ -56,6 +56,15 @@ export class LabelsService {
     return null;
   }
 
+  private normalizeDefaultServiceType(value?: string | null): LabelServiceType | null {
+    if (!value) return null;
+    const normalized = value.toLowerCase().trim();
+    if (normalized === 'active' || normalized === 'active_tracking') return LabelServiceType.ACTIVE;
+    if (normalized === 'empty' || normalized === 'empty_package') return LabelServiceType.EMPTY;
+    if (normalized === 'scan' || normalized === 'scan_label') return LabelServiceType.SCAN;
+    return null;
+  }
+
   private validateRow(base: ParsedRow): ParsedRow {
     if (!base.serviceType) {
       return { ...base, status: 'invalid', error: 'serviceType required' };
@@ -189,8 +198,9 @@ export class LabelsService {
     return results;
   }
 
-  async createExcelPreview(userId: string, file: UploadedFile) {
+  async createExcelPreview(userId: string, file: UploadedFile, defaultServiceType?: string) {
     if (!file) throw new BadRequestException('File required');
+    const defaultService = this.normalizeDefaultServiceType(defaultServiceType);
     const workbook = XLSX.read(file.buffer, { type: 'buffer' });
     const sheetName = workbook.SheetNames[0];
     if (!sheetName) throw new BadRequestException('No sheet found');
@@ -203,7 +213,7 @@ export class LabelsService {
 
     const parsed: ParsedRow[] = normalizedRows.map((row: Record<string, any>) => {
       const serviceValue = (this.firstValue(row, ['servicetype', 'type', 'service']) ?? '').toString().trim();
-      const serviceTypeNormalized = this.normalizeServiceType(serviceValue);
+      const serviceTypeNormalized = this.normalizeServiceType(serviceValue) ?? (!serviceValue ? defaultService : null);
       const labelFileUrl = (this.firstValue(row, ['label', 'url', 'labelfileurl']) ?? '').toString().trim();
       const trackingNumber = (this.firstValue(row, ['trackingnumber', 'tracking number', 'tracking']))?.toString() ?? '';
       const clientRequestId = this.firstValue(row, ['clientrequestid', 'requestid'])?.toString() || undefined;
@@ -211,6 +221,17 @@ export class LabelsService {
 
       // Provide clearer errors when serviceType is missing/unknown.
       if (!serviceValue) {
+        if (defaultService) {
+          return this.validateRow({
+            labelFileUrl,
+            serviceType: defaultService,
+            trackingNumber,
+            carrier: 'USPS',
+            clientRequestId,
+            sourceFileName,
+            status: 'invalid',
+          });
+        }
         return {
           labelFileUrl,
           serviceType: LabelServiceType.ACTIVE,

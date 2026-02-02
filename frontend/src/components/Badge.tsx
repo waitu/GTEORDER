@@ -4,6 +4,7 @@ import { ReactNode } from 'react';
 type BadgeProps = {
   children: ReactNode;
   variant?: 'info' | 'success' | 'warning' | 'danger' | 'neutral';
+  className?: string;
 };
 
 const variantClass = {
@@ -14,6 +15,7 @@ const variantClass = {
   neutral: 'bg-slate-100 text-slate-800',
 };
 
-export const Badge = ({ children, variant = 'neutral' }: BadgeProps) => (
-  <span className={clsx('rounded-full px-3 py-1 text-xs font-semibold', variantClass[variant])}>{children}</span>
+export const Badge = ({ children, variant = 'neutral', className }: BadgeProps) => (
+  <span className={clsx('rounded-full px-3 py-1 text-xs font-semibold', variantClass[variant], className)}>{children}</span>
 );
+

@@ -21,6 +21,7 @@ export type ImportLabelsModalProps = {
   onClose: () => void;
   onSubmit?: (rows: ImportRow[]) => void;
   isSubmitting?: boolean;
+  defaultServiceType?: 'active' | 'empty';
 };
 
 const acceptSheets = '.csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel';
@@ -36,7 +37,7 @@ const validateRow = (row: ImportRow): ImportRow => {
   return { ...row, status: error ? 'invalid' : 'valid', error };
 };
 
-const mapExcelRow = (row: Record<string, any>, index: number): ImportRow => {
+const mapExcelRow = (row: Record<string, any>, index: number, defaultServiceType?: ImportRow['serviceType']): ImportRow => {
   // Legacy client-side parsing kept for template preview only.
   const serviceRaw = row.serviceType ?? row.type ?? row.service ?? row['Service Type'] ?? row['service type'] ?? '';
   const serviceText = String(serviceRaw ?? '').trim().toLowerCase();
@@ -46,7 +47,7 @@ const mapExcelRow = (row: Record<string, any>, index: number): ImportRow => {
       ? 'empty'
       : serviceText.includes('scan')
         ? 'scan'
-        : undefined;
+        : defaultServiceType;
 
   const labelRaw = row.label ?? row.url ?? row.labelFileUrl ?? row['Label'] ?? row['URL'] ?? '';
   const labelFileUrl = String(labelRaw ?? '').trim();
@@ -75,31 +76,38 @@ const downloadBlob = (blob: Blob, filename: string) => {
   URL.revokeObjectURL(url);
 };
 
-const downloadTemplateXlsx = () => {
-  const rows = [
-    { label: 'https://example.com/label.pdf', serviceType: 'active', trackingNumber: '9400000000000000000000' },
-    { label: 'https://example.com/label.pdf', serviceType: 'empty', trackingNumber: 'EA123456789US' },
-  ];
-  const ws = XLSX.utils.json_to_sheet(rows, { header: ['label', 'serviceType', 'trackingNumber'] });
+const downloadTemplateXlsx = (defaultServiceType?: 'active' | 'empty') => {
+  const rows = defaultServiceType
+    ? [{ label: 'https://example.com/label.pdf', trackingNumber: '9400000000000000000000' }]
+    : [
+        { label: 'https://example.com/label.pdf', serviceType: 'active', trackingNumber: '9400000000000000000000' },
+        { label: 'https://example.com/label.pdf', serviceType: 'empty', trackingNumber: 'EA123456789US' },
+      ];
+  const header = defaultServiceType ? ['label', 'trackingNumber'] : ['label', 'serviceType', 'trackingNumber'];
+  const ws = XLSX.utils.json_to_sheet(rows, { header });
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'trackings');
   const arrayBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-  downloadBlob(new Blob([arrayBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), 'label_import_template.xlsx');
+  const suffix = defaultServiceType ? `_${defaultServiceType}` : '';
+  downloadBlob(new Blob([arrayBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), `label_import_template${suffix}.xlsx`);
 };
 
-const downloadTemplateCsv = () => {
-  const headers = ['label', 'serviceType', 'trackingNumber'];
-  const rows = [
-    ['https://example.com/label.pdf', 'active', '9400000000000000000000'],
-    ['https://example.com/label.pdf', 'empty', 'EA123456789US'],
-  ];
+const downloadTemplateCsv = (defaultServiceType?: 'active' | 'empty') => {
+  const headers = defaultServiceType ? ['label', 'trackingNumber'] : ['label', 'serviceType', 'trackingNumber'];
+  const rows = defaultServiceType
+    ? [['https://example.com/label.pdf', '9400000000000000000000']]
+    : [
+        ['https://example.com/label.pdf', 'active', '9400000000000000000000'],
+        ['https://example.com/label.pdf', 'empty', 'EA123456789US'],
+      ];
   const csv = [headers, ...rows]
     .map((r) => r.map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(','))
     .join('\n');
-  downloadBlob(new Blob([csv], { type: 'text/csv;charset=utf-8;' }), 'label_import_template.csv');
+  const suffix = defaultServiceType ? `_${defaultServiceType}` : '';
+  downloadBlob(new Blob([csv], { type: 'text/csv;charset=utf-8;' }), `label_import_template${suffix}.csv`);
 };
 
-export const ImportLabelsModal = ({ open, onClose, onSubmit, isSubmitting }: ImportLabelsModalProps) => {
+export const ImportLabelsModal = ({ open, onClose, onSubmit, isSubmitting, defaultServiceType }: ImportLabelsModalProps) => {
   const [rows, setRows] = useState<ImportRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [localSubmitting, setLocalSubmitting] = useState(false);
@@ -155,6 +163,9 @@ export const ImportLabelsModal = ({ open, onClose, onSubmit, isSubmitting }: Imp
     try {
       const fd = new FormData();
       fd.append('file', file);
+      if (defaultServiceType) {
+        fd.append('serviceType', defaultServiceType);
+      }
       const { data } = await http.post('/labels/import/excel', fd);
       setPreviewId(data.previewId ?? null);
       setServerResult(data);
@@ -256,7 +267,15 @@ export const ImportLabelsModal = ({ open, onClose, onSubmit, isSubmitting }: Imp
           <div className="mt-4 rounded-xl border border-dashed border-slate-200 bg-slate-50 p-4">
             <div className="flex flex-col gap-2 text-sm text-slate-700">
                   <p className="font-semibold">Upload .xlsx or .csv</p>
-                  <p className="text-xs text-slate-500">Required columns: <span className="font-semibold">label</span> (or url) and <span className="font-semibold">serviceType</span>. For <span className="font-semibold">active</span> / <span className="font-semibold">empty</span>, <span className="font-semibold">trackingNumber</span> is required.</p>
+                  {defaultServiceType ? (
+                    <p className="text-xs text-slate-500">
+                      Importing as <span className="font-semibold">{defaultServiceType}</span>. Required columns: <span className="font-semibold">label</span> (or url) and <span className="font-semibold">trackingNumber</span>.
+                    </p>
+                  ) : (
+                    <p className="text-xs text-slate-500">
+                      Required columns: <span className="font-semibold">label</span> (or url) and <span className="font-semibold">serviceType</span>. For <span className="font-semibold">active</span> / <span className="font-semibold">empty</span>, <span className="font-semibold">trackingNumber</span> is required.
+                    </p>
+                  )}
               <div className="flex gap-2">
                 <button
                   type="button"
@@ -269,7 +288,7 @@ export const ImportLabelsModal = ({ open, onClose, onSubmit, isSubmitting }: Imp
                 <button
                   type="button"
                   className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-800 hover:border-slate-400"
-                  onClick={downloadTemplateXlsx}
+                  onClick={() => downloadTemplateXlsx(defaultServiceType)}
                   disabled={isSubmitting}
                 >
                   Download template (.xlsx)
@@ -277,7 +296,7 @@ export const ImportLabelsModal = ({ open, onClose, onSubmit, isSubmitting }: Imp
                 <button
                   type="button"
                   className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-800 hover:border-slate-400"
-                  onClick={downloadTemplateCsv}
+                  onClick={() => downloadTemplateCsv(defaultServiceType)}
                   disabled={isSubmitting}
                 >
                   Download template (.csv)

@@ -31,14 +31,25 @@ type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
+const decodeBase64UrlJson = (value: string): Record<string, unknown> | null => {
+  try {
+    const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = normalized.padEnd(normalized.length + ((4 - (normalized.length % 4)) % 4), '=');
+    const json = atob(padded);
+    const parsed = JSON.parse(json) as Record<string, unknown>;
+    return parsed;
+  } catch {
+    return null;
+  }
+};
+
 const decodeUserFromToken = (token?: string | null): User | null => {
   if (!token) return null;
   try {
     const [, payload] = token.split('.');
     if (!payload) return null;
-    const normalized = payload.replace(/-/g, '+').replace(/_/g, '/');
-    const json = atob(normalized);
-    const parsed = JSON.parse(json) as Record<string, unknown>;
+    const parsed = decodeBase64UrlJson(payload);
+    if (!parsed) return null;
     const id = typeof parsed.sub === 'string' ? parsed.sub : undefined;
     const email = typeof parsed.email === 'string' ? parsed.email : undefined;
     const role = typeof parsed.role === 'string' ? parsed.role : undefined;
@@ -103,11 +114,24 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const login = useCallback(
     async (email: string) => {
       const result = await loginWithEmail(email);
-      if (!result.otpRequestId) {
-        throw new Error('OTP request could not be created');
+
+      // Trusted-device flow: backend may return tokens directly.
+      const decoded = decodeUserFromToken(getAccessToken());
+      if (decoded) {
+        setUser(decoded);
+        setIsAuthenticated(true);
+        setPendingOtpRequestId(null);
+        navigate('/dashboard');
+        return;
       }
-      setPendingOtpRequestId(result.otpRequestId);
-      navigate('/otp');
+
+      if (result.needOtp && result.otpRequestId) {
+        setPendingOtpRequestId(result.otpRequestId);
+        navigate('/otp');
+        return;
+      }
+
+      throw new Error('OTP request could not be created');
     },
     [navigate],
   );

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { DashboardLayout } from '../../components/DashboardLayout';
@@ -11,6 +11,7 @@ import { ImportLabelsModal } from '../../components/orders/ImportLabelsModal';
 import CreateDesignModal from '../../components/orders/CreateDesignModal';
 
 const ORDER_TYPES: OrderType[] = ['active_tracking', 'empty_package', 'design', 'other'];
+const STANDARD_ORDER_TYPES: Array<Extract<OrderType, 'active_tracking' | 'empty_package'>> = ['active_tracking', 'empty_package'];
 const ORDER_STATUSES: OrderStatus[] = ['pending', 'processing', 'completed', 'error', 'failed'];
 const PAYMENT_STATUSES: PaymentStatus[] = ['unpaid', 'paid'];
 const DEFAULT_LIMIT = 20;
@@ -38,6 +39,8 @@ const DESIGN_SUBTYPE_LABELS = DESIGN_SUBTYPE_OPTIONS.filter((opt) => !opt.value.
 }, {});
 type OrdersView = 'standard' | 'design';
 
+type StandardOrdersMode = 'active_tracking' | 'empty_package';
+
 const coerceEnum = <T extends string>(value: string | null, allowed: readonly T[]): T | undefined => {
   if (!value) return undefined;
   return allowed.includes(value as T) ? (value as T) : undefined;
@@ -61,7 +64,7 @@ const OrdersPageBase = ({ view }: { view: OrdersView }) => {
 
   const queryState: OrdersQueryParams = useMemo(() => {
     const base: OrdersQueryParams = {
-      orderType: coerceEnum(searchParams.get('orderType'), ORDER_TYPES),
+      orderType: coerceEnum(searchParams.get('orderType'), view === 'design' ? ORDER_TYPES : STANDARD_ORDER_TYPES),
       orderStatus: coerceEnum(searchParams.get('orderStatus'), ORDER_STATUSES),
       paymentStatus: coerceEnum(searchParams.get('paymentStatus'), PAYMENT_STATUSES),
       search: searchParams.get('search') ?? undefined,
@@ -75,9 +78,23 @@ const OrdersPageBase = ({ view }: { view: OrdersView }) => {
       return { ...base, orderType: 'design' };
     }
     const { designSubtype, ...rest } = base;
-    const normalized = base.orderType === 'design' ? { ...rest, orderType: undefined } : rest;
-    return normalized;
+    return {
+      ...rest,
+      // Standard orders always default to a concrete mode (no "All" mode).
+      orderType: (rest.orderType as StandardOrdersMode | undefined) ?? 'active_tracking',
+    };
   }, [searchParams, view]);
+
+  // Keep URL in sync: if orderType is missing/invalid, force default mode.
+  useEffect(() => {
+    if (view !== 'standard') return;
+    const current = searchParams.get('orderType');
+    if (current === 'active_tracking' || current === 'empty_package') return;
+    const next = new URLSearchParams(searchParams);
+    next.set('orderType', 'active_tracking');
+    next.set('page', '1');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams, view]);
 
   const { data, isLoading, isError, isFetching } = useQuery<OrdersResponse>({
     queryKey: ['orders', view, queryState],
@@ -144,10 +161,20 @@ const OrdersPageBase = ({ view }: { view: OrdersView }) => {
     handleFiltersChange({ ...patch, page: 1 });
   };
 
+  const standardMode: StandardOrdersMode = useMemo(() => {
+    return queryState.orderType === 'empty_package' ? 'empty_package' : 'active_tracking';
+  }, [queryState.orderType]);
+
+  const setStandardMode = (next: StandardOrdersMode) => {
+    if (view !== 'standard') return;
+    applyFilter({ orderType: next });
+  };
+
   const handleResetFilters = () => {
     const next = new URLSearchParams();
     next.set('limit', String(DEFAULT_LIMIT));
     if (view === 'design') next.set('orderType', 'design');
+    if (view === 'standard') next.set('orderType', standardMode);
     setSearchParams(next, { replace: true });
   };
 
@@ -220,6 +247,33 @@ const OrdersPageBase = ({ view }: { view: OrdersView }) => {
     <DashboardLayout title={view === 'design' ? 'Design' : 'Orders'}>
 
       <div className="mt-4 flex flex-wrap items-center gap-2">
+        {view === 'standard' && (
+          <div className="inline-flex rounded-lg border border-slate-200 bg-white p-1 shadow-sm">
+            <button
+              type="button"
+              className={
+                standardMode === 'active_tracking'
+                  ? 'rounded-md bg-slate-900 px-3 py-1.5 text-sm font-semibold text-white'
+                  : 'rounded-md px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-50'
+              }
+              onClick={() => setStandardMode('active_tracking')}
+            >
+              Active tracking
+            </button>
+            <button
+              type="button"
+              className={
+                standardMode === 'empty_package'
+                  ? 'rounded-md bg-slate-900 px-3 py-1.5 text-sm font-semibold text-white'
+                  : 'rounded-md px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-50'
+              }
+              onClick={() => setStandardMode('empty_package')}
+            >
+              Empty package
+            </button>
+          </div>
+        )}
+
         {view === 'design' ? (
           <button
             type="button"
@@ -236,9 +290,14 @@ const OrdersPageBase = ({ view }: { view: OrdersView }) => {
             className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-slate-800"
             onClick={() => setIsImportOpen(true)}
           >
-            Import Labels (Excel)
+            {view === 'standard'
+              ? standardMode === 'active_tracking'
+                ? 'Import Active tracking (Excel)'
+                : 'Import Empty package (Excel)'
+              : 'Import Labels (Excel)'}
           </button>
         )}
+
         <button
           type="button"
           className={`inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-semibold shadow-sm ${
@@ -265,21 +324,21 @@ const OrdersPageBase = ({ view }: { view: OrdersView }) => {
           containerClass: 'border border-indigo-100 bg-indigo-50 hover:border-indigo-200',
           labelClass: 'text-indigo-700',
           valueClass: 'text-xl text-indigo-900',
-          onClick: () => applyFilter({ orderStatus: 'processing' }),
+          onClick: () => applyFilter({ orderStatus: 'processing', paymentStatus: undefined }),
         }, {
           label: 'Payment failed / unpaid',
           value: summary.unpaid,
           containerClass: 'border border-amber-100 bg-amber-50 hover:border-amber-200',
           labelClass: 'text-amber-700',
           valueClass: 'text-xl text-amber-900',
-          onClick: () => applyFilter({ paymentStatus: 'unpaid' }),
+          onClick: () => applyFilter({ orderStatus: undefined, paymentStatus: 'unpaid' }),
         }, {
           label: 'Error orders',
           value: summary.errorCount,
           containerClass: 'border border-rose-100 bg-rose-50 hover:border-rose-200',
           labelClass: 'text-rose-700',
           valueClass: 'text-xl text-rose-900',
-          onClick: () => applyFilter({ orderStatus: 'error' }),
+          onClick: () => applyFilter({ orderStatus: 'error', paymentStatus: undefined }),
         }].map((card) => (
           <button
             key={card.label}
@@ -312,7 +371,7 @@ const OrdersPageBase = ({ view }: { view: OrdersView }) => {
                   { label: 'Other', value: 'other' },
                 ]}
           orderTypeDisabled={view === 'design'}
-          hideOrderType={view === 'design'}
+          hideOrderType={view === 'design' || view === 'standard'}
           designSubtypeOptions={
             view === 'design'
               ? [{ label: 'All design subtypes', value: '' }, ...DESIGN_SUBTYPE_OPTIONS]
@@ -421,6 +480,15 @@ const OrdersPageBase = ({ view }: { view: OrdersView }) => {
       <ImportLabelsModal
         open={isImportOpen}
         onClose={() => setIsImportOpen(false)}
+        defaultServiceType={
+          view === 'standard'
+            ? standardMode === 'active_tracking'
+              ? 'active'
+              : standardMode === 'empty_package'
+                ? 'empty'
+                : undefined
+            : undefined
+        }
         onSubmit={(_rows) => {
           setIsImportOpen(false);
           void queryClient.invalidateQueries({ queryKey: ['orders'], exact: false });

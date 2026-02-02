@@ -18,6 +18,7 @@ import { createReadStream, promises as fs } from 'fs';
 
 import { AccessAuthGuard } from '../auth/access-auth.guard.js';
 import { CreatePingPongTopupDto } from './dto/create-pingpong-topup.dto.js';
+import { CreatePingPongPackageTopupDto } from './dto/create-pingpong-package-topup.dto.js';
 import { CreditTopupsService, UploadedBillImage } from './credit-topups.service.js';
 
 @Controller('api/credits')
@@ -45,6 +46,32 @@ export class CreditTopupsController {
     return this.topups.createPingPongManualTopup({
       userId,
       amount: dto.amount,
+      transferNote: dto.transferNote,
+      note: dto.note ?? null,
+      billImage,
+    });
+  }
+
+  @Post('topup/pingpong/package')
+  @UseInterceptors(
+    FileInterceptor('bill_image', {
+      limits: { fileSize: 5 * 1024 * 1024 },
+      fileFilter: (_req, file, cb) => {
+        const ok = file.mimetype === 'image/png' || file.mimetype === 'image/jpeg';
+        // Do not throw here; let the service return a clear BadRequest.
+        cb(null, ok);
+      },
+    }),
+  )
+  async createPingPongPackageTopup(
+    @Req() req: Request & { user?: any },
+    @Body() dto: CreatePingPongPackageTopupDto,
+    @UploadedFile() billImage: UploadedBillImage,
+  ) {
+    const userId = req.user?.sub;
+    return this.topups.createPingPongPackageTopup({
+      userId,
+      packageKey: dto.packageKey,
       transferNote: dto.transferNote,
       note: dto.note ?? null,
       billImage,
