@@ -3,6 +3,8 @@ import { useQuery } from '@tanstack/react-query';
 import { DashboardLayout } from '../../components/DashboardLayout';
 import { fetchBalance } from '../../api/dashboard';
 import { fetchMyCreditHistory, UserCreditHistoryItem } from '../../api/creditTopups';
+import { fetchPricing } from '../../api/pricing';
+import { getServiceLabelForKey, SERVICE_CREDIT_COST } from '../../lib/pricing';
 
 const pad2 = (n: number) => String(n).padStart(2, '0');
 
@@ -31,6 +33,12 @@ export const BalancePage = () => {
   const { data, isLoading, isError } = useQuery({ queryKey: ['balance'], queryFn: fetchBalance });
   const balanceValue = data?.balance;
 
+  const pricingQuery = useQuery({
+    queryKey: ['pricing'],
+    queryFn: fetchPricing,
+    staleTime: 5 * 60 * 1000,
+  });
+
   const historyQuery = useQuery({
     queryKey: ['credits', 'history'],
     queryFn: fetchMyCreditHistory,
@@ -46,6 +54,14 @@ export const BalancePage = () => {
     });
   }, [historyQuery.data]);
 
+  const serviceCosts = useMemo(() => {
+    const apiCosts = pricingQuery.data?.serviceCreditCost ?? {};
+    const merged = { ...SERVICE_CREDIT_COST, ...apiCosts } as Record<string, number>;
+    return Object.entries(merged)
+      .filter(([, cost]) => typeof cost === 'number' && Number.isFinite(cost))
+      .sort((a, b) => a[0].localeCompare(b[0]));
+  }, [pricingQuery.data]);
+
   return (
     <DashboardLayout title="Credit">
       <div className="space-y-6">
@@ -59,6 +75,47 @@ export const BalancePage = () => {
               <p className="text-sm text-slate-200">Credits will be added after admin confirmation (usually within 1–24h).</p>
             </div>
           )}
+        </div>
+
+        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-semibold text-ink">Service costs</h3>
+            {pricingQuery.isFetching && <span className="text-xs text-slate-500">Refreshing…</span>}
+          </div>
+
+          <div className="mt-4 overflow-x-auto">
+            <table className="min-w-full text-left text-sm">
+              <thead className="border-b border-slate-100 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <tr>
+                  <th className="py-3 pr-4">Service</th>
+                  <th className="py-3 pr-4">Cost (cr)</th>
+                  <th className="py-3 pr-0">Remaining uses</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {serviceCosts.map(([key, cost]) => {
+                  const balance = Number(balanceValue ?? 0);
+                  const remaining = cost > 0 ? Math.floor(balance / cost) : null;
+                  return (
+                    <tr key={key}>
+                      <td className="py-3 pr-4">
+                        <span className="text-slate-800">{getServiceLabelForKey(key)}</span>
+                      </td>
+                      <td className="py-3 pr-4 font-semibold">{Number(cost).toLocaleString(undefined, { maximumFractionDigits: 2 })}</td>
+                      <td className="py-3 pr-0 font-semibold">
+                        {remaining == null ? '—' : remaining.toLocaleString()}
+                      </td>
+                    </tr>
+                  );
+                })}
+                {serviceCosts.length === 0 && (
+                  <tr>
+                    <td colSpan={3} className="py-6 text-center text-sm text-slate-600">No service costs available.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
 
         <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">

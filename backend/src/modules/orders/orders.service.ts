@@ -19,6 +19,9 @@ export type OrderListItem = {
   orderType: OrderType;
   designSubtype?: string | null;
   trackingCode?: string | null;
+  labelUrl?: string | null;
+  labelImageUrl?: string | null;
+  resultUrl?: string | null;
   totalCost: number;
   orderStatus: OrderStatus;
   paymentStatus: PaymentStatus;
@@ -108,6 +111,9 @@ export class OrdersService {
       orderType: order.orderType,
       designSubtype: order.designSubtype ?? null,
       trackingCode: order.trackingCode ?? null,
+      labelUrl: order.labelUrl ?? null,
+      labelImageUrl: order.labelImageUrl ?? null,
+      resultUrl: order.resultUrl ?? null,
       totalCost: order.totalCost,
       orderStatus: order.orderStatus,
       paymentStatus: order.paymentStatus,
@@ -322,15 +328,15 @@ export class OrdersService {
         .andWhere('bt.amount < 0')
         .getOne();
 
-      // If there is no debit yet, perform debit
-      if (!existingTx) {
+      // If already marked paid (manually or previously), skip charging again.
+      if (txOrder.paymentStatus === PaymentStatus.PAID || existingTx) {
+        txOrder.paymentStatus = PaymentStatus.PAID;
+      } else {
+        // If there is no debit yet, perform debit
         const uid = txOrder.user?.id ?? order.user?.id;
         if (!uid) throw new NotFoundException('User not found');
         // Use CreditService.consume to debit canonical pricing
         await this.creditService.consume(uid, serviceKey as string, txOrder.id, manager as any);
-        txOrder.paymentStatus = PaymentStatus.PAID;
-      } else {
-        // Keep paymentStatus consistent with ledger.
         txOrder.paymentStatus = PaymentStatus.PAID;
       }
 

@@ -8,7 +8,6 @@ import { AdminOrderDetailModal } from '../../components/orders/AdminOrderDetailM
 import { ConfirmModal } from '../../components/ConfirmModal';
 import { getServiceCostByKey, formatCostText } from '../../lib/pricing';
 import { EmptyState } from '../../components/EmptyState';
-import { ImportLabelsModal, ImportRow } from '../../components/orders/ImportLabelsModal';
 import { TableColumn } from '../../components/Table';
 import {
   AdminOrder,
@@ -70,7 +69,11 @@ export const AdminOrdersPage = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const [toast, setToast] = useState('');
   const [detailId, setDetailId] = useState<string | null>(null);
-  const [importOpen, setImportOpen] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportFrom, setExportFrom] = useState('');
+  const [exportTo, setExportTo] = useState('');
+  const [exportError, setExportError] = useState<string | null>(null);
   const [pendingPaymentChange, setPendingPaymentChange] = useState<{ orderId: string; paymentStatus: PaymentStatus } | null>(null);
   const view: OrdersView = searchParams.get('view') === 'design' ? 'design' : 'standard';
 
@@ -121,10 +124,6 @@ export const AdminOrdersPage = () => {
     enabled: !!detailId,
   });
 
-  const handleImportSubmit = (importRows: ImportRow[]) => {
-    setToast(`Import staged for ${importRows.length} row(s) (frontend only)`);
-    setImportOpen(false);
-  };
 
   const selectedOrder: AdminOrder | null = detailQuery.data ?? data?.data.find((order) => order.id === detailId) ?? null;
 
@@ -148,6 +147,10 @@ export const AdminOrdersPage = () => {
 
   const handlePageChange = (nextPage: number) => {
     updateSearchParams({ page: Math.max(1, nextPage) } as Partial<OrdersQueryParams>);
+  };
+
+  const applyFilter = (patch: Partial<OrdersQueryParams>) => {
+    handleFiltersChange({ ...patch, page: 1 });
   };
 
   const handleResetFilters = () => {
@@ -247,7 +250,6 @@ export const AdminOrdersPage = () => {
 
   const statusUpdatingId = statusMutation.variables?.orderId;
   const paymentUpdatingId = paymentMutation.variables?.orderId;
-  const currency = useMemo(() => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }), []);
 
   const adminColumns: TableColumn<AdminOrder>[] = useMemo(() => {
     const cols: TableColumn<AdminOrder>[] = [
@@ -292,7 +294,7 @@ export const AdminOrdersPage = () => {
       {
         key: 'totalCost',
         header: 'Total',
-        render: (order) => <span className="text-sm font-semibold text-ink">{currency.format(order.totalCost ?? 0)}</span>,
+        render: (order) => <span className="text-sm font-semibold text-ink">{order.totalCost != null ? `${Number(order.totalCost).toLocaleString(undefined, { maximumFractionDigits: 2 })} cr` : '—'}</span>,
       },
       {
         key: 'orderStatus',
@@ -364,12 +366,67 @@ export const AdminOrdersPage = () => {
       return cols.filter((col) => col.key !== 'trackingCode');
     }
     return cols;
-  }, [currency, paymentMutation.isPending, paymentUpdatingId, setDetailId, statusMutation.isPending, statusUpdatingId, view]);
+  }, [paymentMutation.isPending, paymentUpdatingId, setDetailId, statusMutation.isPending, statusUpdatingId, view]);
 
   const filteredOrders = useMemo(() => {
     if (!data?.data) return [] as AdminOrder[];
     return view === 'design' ? data.data.filter((o) => o.orderType === 'design') : data.data.filter((o) => o.orderType !== 'design');
   }, [data?.data, view]);
+
+  const summary = useMemo(() => {
+    const orders = filteredOrders;
+    const pending = orders.filter((o) => o.orderStatus === 'pending').length;
+    const processing = orders.filter((o) => o.orderStatus === 'processing').length;
+    const paid = orders.filter((o) => o.paymentStatus === 'paid').length;
+    const unpaid = orders.filter((o) => o.paymentStatus === 'unpaid').length;
+    const errorCount = orders.filter((o) => o.orderStatus === 'error' || o.orderStatus === 'failed').length;
+    const total = view === 'design' ? data?.meta.total ?? orders.length : orders.length;
+    return { total, pending, processing, paid, unpaid, errorCount };
+  }, [filteredOrders, view, data?.meta.total]);
+
+  const handleExport = (range: { from: string; to: string }) => {
+    if (filteredOrders.length === 0) return;
+    setIsExporting(true);
+    try {
+      const fromDate = new Date(`${range.from}T00:00:00`);
+      const toDate = new Date(`${range.to}T23:59:59.999`);
+      const filtered = filteredOrders.filter((order) => {
+        const created = new Date(order.createdAt).getTime();
+        return created >= fromDate.getTime() && created <= toDate.getTime();
+      });
+      if (filtered.length === 0) {
+        setExportError('No orders found in the selected date range.');
+        return;
+      }
+      const headers = ['Order ID', 'Order Type', 'Tracking Number', 'Order Status', 'Payment Status', 'Created At'];
+      const rows = filtered.map((order) => [
+        order.id,
+        order.orderType,
+        order.trackingCode ?? '',
+        order.orderStatus,
+        order.paymentStatus,
+        new Date(order.createdAt).toISOString(),
+      ]);
+      const escape = (value: string) => {
+        if (value.includes(',') || value.includes('"') || value.includes('\n')) {
+          return `"${value.replace(/"/g, '""')}"`;
+        }
+        return value;
+      };
+      const csv = [headers, ...rows]
+        .map((row) => row.map((cell) => escape(String(cell ?? ''))).join(','))
+        .join('\n');
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `admin_orders_${range.from}_to_${range.to}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   // Selection state for bulk actions
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -455,7 +512,9 @@ export const AdminOrdersPage = () => {
     // build estimate payload
     const items = selectedOrders.map((o) => {
       let cost = 0;
-      if (o.orderType === 'active_tracking') cost = getServiceCostByKey('scan_label') ?? 0;
+      if (o.paymentStatus === 'paid') {
+        cost = 0;
+      } else if (o.orderType === 'active_tracking') cost = getServiceCostByKey('scan_label') ?? 0;
       else if (o.orderType === 'empty_package') cost = getServiceCostByKey('empty_package') ?? 0;
       else if (o.orderType === 'design') cost = getServiceCostByKey(o.designSubtype ?? 'design') ?? 0;
       const label = formatCostText(o.designSubtype ?? (o.orderType === 'active_tracking' ? 'scan_label' : o.orderType)) ?? 'Service';
@@ -538,14 +597,62 @@ export const AdminOrdersPage = () => {
             );
           })}
         </div>
+      </div>
 
-        <button
-          type="button"
-          className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800"
-          onClick={() => setImportOpen(true)}
-        >
-          Import Labels
-        </button>
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
+        {[{
+          label: 'Total orders',
+          value: summary.total,
+          containerClass: 'border border-slate-100 bg-slate-50 hover:border-slate-200',
+          labelClass: 'text-slate-600',
+          valueClass: 'text-xl text-ink',
+          onClick: () => applyFilter({ orderStatus: undefined, paymentStatus: undefined }),
+        }, {
+          label: 'Pending',
+          value: summary.pending,
+          containerClass: 'border border-slate-100 bg-slate-50 hover:border-slate-200',
+          labelClass: 'text-slate-600',
+          valueClass: 'text-xl text-ink',
+          onClick: () => applyFilter({ orderStatus: 'pending', paymentStatus: undefined }),
+        }, {
+          label: 'Processing',
+          value: summary.processing,
+          containerClass: 'border border-indigo-100 bg-indigo-50 hover:border-indigo-200',
+          labelClass: 'text-indigo-700',
+          valueClass: 'text-xl text-indigo-900',
+          onClick: () => applyFilter({ orderStatus: 'processing', paymentStatus: undefined }),
+        }, {
+          label: 'Paid',
+          value: summary.paid,
+          containerClass: 'border border-emerald-100 bg-emerald-50 hover:border-emerald-200',
+          labelClass: 'text-emerald-700',
+          valueClass: 'text-xl text-emerald-900',
+          onClick: () => applyFilter({ orderStatus: undefined, paymentStatus: 'paid' }),
+        }, {
+          label: 'Payment failed / unpaid',
+          value: summary.unpaid,
+          containerClass: 'border border-amber-100 bg-amber-50 hover:border-amber-200',
+          labelClass: 'text-amber-700',
+          valueClass: 'text-xl text-amber-900',
+          onClick: () => applyFilter({ orderStatus: undefined, paymentStatus: 'unpaid' }),
+        }, {
+          label: 'Error orders',
+          value: summary.errorCount,
+          containerClass: 'border border-rose-100 bg-rose-50 hover:border-rose-200',
+          labelClass: 'text-rose-700',
+          valueClass: 'text-xl text-rose-900',
+          onClick: () => applyFilter({ orderStatus: 'error', paymentStatus: undefined }),
+        }].map((card) => (
+          <button
+            key={card.label}
+            type="button"
+            className={`rounded-lg px-4 py-3 text-left shadow-sm transition hover:-translate-y-0.5 ${card.containerClass}`}
+            onClick={card.onClick}
+          >
+            <p className={`text-xs font-semibold uppercase tracking-wide ${card.labelClass}`}>{card.label}</p>
+            <p className={`${card.valueClass}`}>{card.value ?? '—'}</p>
+          </button>
+        ))}
       </div>
 
       <OrdersFilterBar
@@ -592,6 +699,18 @@ export const AdminOrdersPage = () => {
           disabled={!canBulkArchive || bulkArchiveMutation.isLoading}
         >
           Archive
+        </button>
+        <button
+          className="rounded-lg border border-slate-200 px-3 py-1 text-sm"
+          onClick={() => {
+            setExportError(null);
+            setExportFrom(queryState.from ?? '');
+            setExportTo(queryState.to ?? '');
+            setExportOpen(true);
+          }}
+          disabled={filteredOrders.length === 0 || isExporting}
+        >
+          {isExporting ? 'Exporting…' : 'Export'}
         </button>
         <button className="ml-2 text-sm text-slate-500" onClick={() => setSelectedIds(new Set())}>
           Clear
@@ -649,7 +768,66 @@ export const AdminOrdersPage = () => {
         )}
       </div>
 
-      <ImportLabelsModal open={importOpen} onClose={() => setImportOpen(false)} onSubmit={handleImportSubmit} />
+      {exportOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+            <h3 className="text-lg font-semibold text-ink">Export orders</h3>
+            <p className="mt-1 text-sm text-slate-600">Choose a date range to export orders.</p>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                From
+                <input
+                  type="date"
+                  className="rounded-md border border-slate-200 px-3 py-2 text-sm"
+                  value={exportFrom}
+                  onChange={(event) => setExportFrom(event.target.value)}
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                To
+                <input
+                  type="date"
+                  className="rounded-md border border-slate-200 px-3 py-2 text-sm"
+                  value={exportTo}
+                  onChange={(event) => setExportTo(event.target.value)}
+                />
+              </label>
+            </div>
+            {exportError && <p className="mt-3 text-sm text-rose-700">{exportError}</p>}
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                onClick={() => setExportOpen(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className={`rounded-lg px-4 py-2 text-sm font-semibold text-white ${
+                  exportFrom && exportTo ? 'bg-ink hover:bg-slate-900' : 'bg-slate-400'
+                }`}
+                onClick={() => {
+                  if (!exportFrom || !exportTo) {
+                    setExportError('Please select both From and To dates.');
+                    return;
+                  }
+                  if (new Date(exportFrom) > new Date(exportTo)) {
+                    setExportError('From date must be before To date.');
+                    return;
+                  }
+                  setExportError(null);
+                  setExportOpen(false);
+                  handleExport({ from: exportFrom, to: exportTo });
+                }}
+                disabled={!exportFrom || !exportTo || isExporting}
+              >
+                Export
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <BulkFailModal open={showFailModal} onClose={() => setShowFailModal(false)} onConfirm={submitBulkFail} />
 
@@ -681,7 +859,9 @@ export const AdminOrdersPage = () => {
           if (!order) return setToast('Order not found');
           // compute cost
           let cost = 0;
-          if (order.orderType === 'active_tracking') cost = getServiceCostByKey('scan_label') ?? 0;
+          if (order.paymentStatus === 'paid') {
+            cost = 0;
+          } else if (order.orderType === 'active_tracking') cost = getServiceCostByKey('scan_label') ?? 0;
           else if (order.orderType === 'empty_package') cost = getServiceCostByKey('empty_package') ?? 0;
           else if (order.orderType === 'design') cost = getServiceCostByKey(order.designSubtype ?? 'design') ?? 0;
           const balance = Number(((order.user as any)?.creditBalance ?? 0));
@@ -713,16 +893,22 @@ export const AdminOrdersPage = () => {
         title={bulkConfirmPayload ? `Start processing ${bulkConfirmPayload.items.length} order(s)?` : 'Start processing orders?'}
         description={
           bulkConfirmPayload
-            ? `This will deduct ${bulkConfirmPayload.total} credits across ${bulkConfirmPayload.perUser.length} user(s).` +
-              '\n\n' +
-              bulkConfirmPayload.perUser
-                .map((u) => `${u.email ?? 'Unknown user'}: ${u.total} credits (balance: ${u.balance})`)
-                .join('\n')
+            ? (() => {
+                const chargeUsers = bulkConfirmPayload.perUser.filter((u) => Number(u.total ?? 0) > 0);
+                if (Number(bulkConfirmPayload.total ?? 0) <= 0 || chargeUsers.length === 0) {
+                  return 'Start processing selected orders.';
+                }
+                return (
+                  `This will deduct ${bulkConfirmPayload.total} credits across ${chargeUsers.length} user(s).` +
+                  '\n\n' +
+                  chargeUsers.map((u) => `${u.email ?? 'Unknown user'}: ${u.total} credits (balance: ${u.balance})`).join('\n')
+                );
+              })()
             : 'Start processing selected orders.'
         }
         confirmLabel="Start processing"
         confirmDisabled={
-          !!bulkConfirmPayload && bulkConfirmPayload.perUser.some((u) => Number(u.balance ?? 0) < Number(u.total ?? 0))
+          !!bulkConfirmPayload && bulkConfirmPayload.perUser.some((u) => Number(u.total ?? 0) > 0 && Number(u.balance ?? 0) < Number(u.total ?? 0))
         }
         onCancel={() => {
           setShowBulkConfirm(false);
@@ -744,11 +930,15 @@ export const AdminOrdersPage = () => {
         title={singleConfirmPayload ? `Start processing order ${singleConfirmPayload.orderId}?` : 'Start processing order?'}
         description={
           singleConfirmPayload
-            ? `This will deduct ${singleConfirmPayload.cost} credits from ${singleConfirmPayload.email ?? 'the user'} (balance: ${singleConfirmPayload.balance}).`
+            ? Number(singleConfirmPayload.cost ?? 0) > 0
+              ? `This will deduct ${singleConfirmPayload.cost} credits from ${singleConfirmPayload.email ?? 'the user'} (balance: ${singleConfirmPayload.balance}).`
+              : 'Start processing this order.'
             : 'Start processing this order?'
         }
         confirmLabel="Start processing"
-        confirmDisabled={!!singleConfirmPayload && Number(singleConfirmPayload.balance ?? 0) < Number(singleConfirmPayload.cost ?? 0)}
+        confirmDisabled={
+          !!singleConfirmPayload && Number(singleConfirmPayload.cost ?? 0) > 0 && Number(singleConfirmPayload.balance ?? 0) < Number(singleConfirmPayload.cost ?? 0)
+        }
         onCancel={() => {
           setShowSingleConfirm(false);
           setSingleConfirmPayload(null);

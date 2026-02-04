@@ -65,6 +65,7 @@ const ServiceCostRow = ({
   bundleUnit,
   subtleDivider,
   compact,
+  showSavings = true,
 }: {
   label: string;
   creditsPerUse: number;
@@ -76,6 +77,7 @@ const ServiceCostRow = ({
   bundleUnit?: string;
   subtleDivider?: boolean;
   compact?: boolean;
+  showSavings?: boolean;
 }) => {
   const perUse = planPpc == null ? null : creditsPerUse * planPpc;
   const save = savingsPct(planPpc, baselinePpc);
@@ -95,7 +97,6 @@ const ServiceCostRow = ({
     const bits: string[] = [];
     if (usesPerPackage != null) bits.push(`≈ ${usesPerPackage.toLocaleString()} / package`);
     if (perUse != null) bits.push(`${usd(perUse)} / use`);
-    if (bundleText == null) bits.push(`${creditsPerUse} ${creditsLabel} / use`);
     return bits.join(' · ');
   })();
 
@@ -105,16 +106,7 @@ const ServiceCostRow = ({
         <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-4 py-2">
           <div className="min-w-0 text-sm font-medium text-slate-900">{label}</div>
           <div className="text-right text-sm text-slate-700">
-            {bundleText ?? (perUse == null ? '—' : `${creditsPerUse} ${creditsLabel} → ${usd(perUse)} per use`)}
-          </div>
-
-          <div className="min-w-0 text-xs text-slate-500">{metaText || <span className="text-transparent">.</span>}</div>
-          <div className="text-right text-xs">
-            {save != null ? (
-              <span className="text-emerald-600">Save {save}% vs {baselineName}</span>
-            ) : (
-              <span className="text-transparent">.</span>
-            )}
+            {metaText || (perUse == null ? '—' : `${usd(perUse)} / use`)}
           </div>
         </div>
       ) : (
@@ -133,7 +125,11 @@ const ServiceCostRow = ({
               {bundleText ?? (perUse == null ? '—' : `${creditsPerUse} ${creditsLabel} → ${usd(perUse)} per use`)}
             </div>
             <div className="mt-0.5 text-xs text-transparent">.</div>
-            {save != null ? <div className="mt-0.5 text-xs text-emerald-600">Save {save}% vs {baselineName}</div> : <div className="mt-0.5 text-xs text-transparent">.</div>}
+            {showSavings && save != null ? (
+              <div className="mt-0.5 text-xs text-emerald-600">Save {save}% vs {baselineName}</div>
+            ) : (
+              <div className="mt-0.5 text-xs text-transparent">.</div>
+            )}
           </div>
         </div>
       )}
@@ -166,6 +162,7 @@ const PricingCard = ({
 
   const scanKey = resolveServiceKey(services, ['scan_label', 'active_tracking']);
   const emptyKey = resolveServiceKey(services, ['empty_package']);
+  const design2dKey = resolveServiceKey(services, ['design_2d', 'illustration', 'design']);
   const detailsHref = `/pricing/details?plan=${encodeURIComponent(planKey)}`;
 
   return (
@@ -203,9 +200,8 @@ const PricingCard = ({
               baselinePpc={basePpc}
               baselineName={baselineName}
               packageCredits={pkg.credits}
-              bundleUses={100}
-              bundleUnit="scans"
               compact
+              showSavings={false}
             />
           ) : (
             <div className="py-2 text-sm text-slate-500">Scan Label → —</div>
@@ -219,14 +215,27 @@ const PricingCard = ({
               baselinePpc={basePpc}
               baselineName={baselineName}
               packageCredits={pkg.credits}
-              bundleUses={100}
-              bundleUnit="empties"
               subtleDivider
               compact
+              showSavings={false}
             />
           ) : (
             <div className="border-t border-slate-100 py-2 text-sm text-slate-500">Empty → —</div>
           )}
+
+          {design2dKey && Number.isFinite(services[design2dKey]) ? (
+            <ServiceCostRow
+              label="Design 2D"
+              creditsPerUse={services[design2dKey]}
+              planPpc={planPpc}
+              baselinePpc={basePpc}
+              baselineName={baselineName}
+              packageCredits={pkg.credits}
+              subtleDivider
+              compact
+              showSavings={false}
+            />
+          ) : null}
         </div>
       </div>
 

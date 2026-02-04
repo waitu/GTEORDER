@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { DashboardLayout } from '../../components/DashboardLayout';
 import { OrdersFilterBar } from '../../components/orders/OrdersFilterBar';
-import { OrdersTable, buildDefaultOrderColumns } from '../../components/orders/OrdersTable';
+import { OrdersTable } from '../../components/orders/OrdersTable';
 import { EmptyState } from '../../components/EmptyState';
 import { fetchOrder, fetchOrders, Order, OrderStatus, OrderType, OrdersQueryParams, OrdersResponse, PaymentStatus, payOrders } from '../../api/orders';
 import { OrderDetailModal } from '../../components/orders/OrderDetailModal';
@@ -63,6 +63,10 @@ const OrdersPageBase = ({ view }: { view: OrdersView }) => {
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [isCreateDesignOpen, setIsCreateDesignOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportFrom, setExportFrom] = useState('');
+  const [exportTo, setExportTo] = useState('');
+  const [exportError, setExportError] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [payMessage, setPayMessage] = useState<string | null>(null);
   const [payConfirmOpen, setPayConfirmOpen] = useState(false);
@@ -122,11 +126,13 @@ const OrdersPageBase = ({ view }: { view: OrdersView }) => {
     const visible = view === 'design'
       ? orders.filter((o) => o.orderType === 'design')
       : orders.filter((o) => o.orderType !== 'design');
+    const pending = visible.filter((o) => o.orderStatus === 'pending').length;
     const processing = visible.filter((o) => o.orderStatus === 'processing').length;
     const unpaid = visible.filter((o) => o.paymentStatus === 'unpaid').length;
+    const paid = visible.filter((o) => o.paymentStatus === 'paid').length;
     const errorCount = visible.filter((o) => o.orderStatus === 'error' || o.orderStatus === 'failed').length;
     const total = view === 'design' ? data?.meta.total ?? visible.length : visible.length;
-    return { total, processing, unpaid, errorCount };
+    return { total, pending, processing, unpaid, paid, errorCount };
   }, [data, view]);
 
   const hasActiveFilters = useMemo(() => {
@@ -194,12 +200,22 @@ const OrdersPageBase = ({ view }: { view: OrdersView }) => {
   const totalCount = view === 'design' ? data?.meta.total ?? visibleOrders.length : visibleOrders.length;
   const totalPages = Math.max(1, Math.ceil(totalCount / (data?.meta.limit ?? queryState.limit ?? DEFAULT_LIMIT)));
 
-  const handleExport = useCallback(() => {
+  const handleExport = useCallback((range: { from: string; to: string }) => {
     if (visibleOrders.length === 0) return;
     setIsExporting(true);
     try {
+      const fromDate = new Date(`${range.from}T00:00:00`);
+      const toDate = new Date(`${range.to}T23:59:59.999`);
+      const filtered = visibleOrders.filter((order) => {
+        const created = new Date(order.createdAt).getTime();
+        return created >= fromDate.getTime() && created <= toDate.getTime();
+      });
+      if (filtered.length === 0) {
+        setExportError('No orders found in the selected date range.');
+        return;
+      }
       const headers = ['Order ID', 'Order Type', 'Tracking Number', 'Order Status', 'Payment Status', 'Created At'];
-      const rows = visibleOrders.map((order) => [
+      const rows = filtered.map((order) => [
         order.id,
         order.orderType,
         order.trackingCode ?? '',
@@ -221,7 +237,7 @@ const OrdersPageBase = ({ view }: { view: OrdersView }) => {
       const a = document.createElement('a');
       const date = new Date().toISOString().slice(0, 10);
       a.href = url;
-      a.download = `orders_${date}.csv`;
+      a.download = `orders_${range.from}_to_${range.to}_${date}.csv`;
       a.click();
       URL.revokeObjectURL(url);
     } finally {
@@ -372,7 +388,13 @@ const OrdersPageBase = ({ view }: { view: OrdersView }) => {
           className={`inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-semibold shadow-sm ${
             visibleOrders.length === 0 || isExporting ? 'border-slate-200 text-slate-400' : 'border-slate-200 text-slate-800 hover:border-slate-300'
           }`}
-          onClick={handleExport}
+          onClick={() => {
+            if (visibleOrders.length === 0 || isExporting) return;
+            setExportError(null);
+            setExportFrom(queryState.from ?? '');
+            setExportTo(queryState.to ?? '');
+            setExportOpen(true);
+          }}
           disabled={visibleOrders.length === 0 || isExporting}
         >
           {isExporting ? 'Exporting…' : 'Export'}
@@ -455,7 +477,68 @@ const OrdersPageBase = ({ view }: { view: OrdersView }) => {
         </div>
       )}
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      {exportOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+            <h3 className="text-lg font-semibold text-ink">Export orders</h3>
+            <p className="mt-1 text-sm text-slate-600">Choose a date range to export orders.</p>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                From
+                <input
+                  type="date"
+                  className="rounded-md border border-slate-200 px-3 py-2 text-sm"
+                  value={exportFrom}
+                  onChange={(event) => setExportFrom(event.target.value)}
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                To
+                <input
+                  type="date"
+                  className="rounded-md border border-slate-200 px-3 py-2 text-sm"
+                  value={exportTo}
+                  onChange={(event) => setExportTo(event.target.value)}
+                />
+              </label>
+            </div>
+            {exportError && <p className="mt-3 text-sm text-rose-700">{exportError}</p>}
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                onClick={() => setExportOpen(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className={`rounded-lg px-4 py-2 text-sm font-semibold text-white ${
+                  exportFrom && exportTo ? 'bg-ink hover:bg-slate-900' : 'bg-slate-400'
+                }`}
+                onClick={() => {
+                  if (!exportFrom || !exportTo) {
+                    setExportError('Please select both From and To dates.');
+                    return;
+                  }
+                  if (new Date(exportFrom) > new Date(exportTo)) {
+                    setExportError('From date must be before To date.');
+                    return;
+                  }
+                  setExportError(null);
+                  setExportOpen(false);
+                  handleExport({ from: exportFrom, to: exportTo });
+                }}
+                disabled={!exportFrom || !exportTo || isExporting}
+              >
+                Export
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
         {[{
           label: 'Total orders',
           value: summary.total,
@@ -464,6 +547,13 @@ const OrdersPageBase = ({ view }: { view: OrdersView }) => {
           valueClass: 'text-xl text-ink',
           onClick: () => applyFilter({ orderStatus: undefined, paymentStatus: undefined }),
         }, {
+          label: 'Pending',
+          value: summary.pending,
+          containerClass: 'border border-slate-100 bg-slate-50 hover:border-slate-200',
+          labelClass: 'text-slate-600',
+          valueClass: 'text-xl text-ink',
+          onClick: () => applyFilter({ orderStatus: 'pending', paymentStatus: undefined }),
+        }, {
           label: 'Processing',
           value: summary.processing,
           containerClass: 'border border-indigo-100 bg-indigo-50 hover:border-indigo-200',
@@ -471,12 +561,19 @@ const OrdersPageBase = ({ view }: { view: OrdersView }) => {
           valueClass: 'text-xl text-indigo-900',
           onClick: () => applyFilter({ orderStatus: 'processing', paymentStatus: undefined }),
         }, {
-          label: 'Payment failed / unpaid',
+          label: 'Unpaid',
           value: summary.unpaid,
           containerClass: 'border border-amber-100 bg-amber-50 hover:border-amber-200',
           labelClass: 'text-amber-700',
           valueClass: 'text-xl text-amber-900',
           onClick: () => applyFilter({ orderStatus: undefined, paymentStatus: 'unpaid' }),
+        }, {
+          label: 'Paid',
+          value: summary.paid,
+          containerClass: 'border border-emerald-100 bg-emerald-50 hover:border-emerald-200',
+          labelClass: 'text-emerald-700',
+          valueClass: 'text-xl text-emerald-900',
+          onClick: () => applyFilter({ orderStatus: undefined, paymentStatus: 'paid' }),
         }, {
           label: 'Error orders',
           value: summary.errorCount,
@@ -534,7 +631,9 @@ const OrdersPageBase = ({ view }: { view: OrdersView }) => {
           <OrdersTable
             orders={visibleOrders}
             onRowClick={handleRowClick}
-            columns={buildDefaultOrderColumns({ onOrderClick: handleRowClick })}
+            primaryUrlSource="label"
+            labelHeader="Label"
+            showAssets={false}
             selectedIds={selectedIds}
             onToggleRow={toggleRow}
             onToggleAll={toggleAll}
@@ -548,6 +647,9 @@ const OrdersPageBase = ({ view }: { view: OrdersView }) => {
             hideTracking
             showDesignSubtype
             designSubtypeLabels={DESIGN_SUBTYPE_LABELS}
+            primaryUrlSource="result"
+            labelHeader="Result"
+            showAssets
             selectedIds={selectedIds}
             onToggleRow={toggleRow}
             onToggleAll={toggleAll}

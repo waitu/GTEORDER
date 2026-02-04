@@ -24,6 +24,7 @@ export type ImportLabelsModalProps = {
 };
 
 const acceptSheets = '.csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel';
+const MAX_IMPORT_ROWS = 3000;
 
 const makeId = () => (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`);
 
@@ -129,7 +130,7 @@ export const ImportLabelsModal = ({ open, onClose, onSubmit, isSubmitting, defau
   const validCount = rows.filter((r) => r.status === 'valid').length;
   const totalCount = rows.length;
   const errorCount = rows.filter((r) => r.status === 'invalid').length;
-  const canSubmit = totalCount > 0 && errorCount === 0 && !isSubmitting;
+  const canSubmit = totalCount > 0 && errorCount === 0 && !isSubmitting && totalCount <= MAX_IMPORT_ROWS;
   const estimatedCredits = rows.reduce((sum, r) => {
     if (r.status !== 'valid') return sum;
     const key = r.serviceType === 'empty' ? 'empty_package' : 'scan_label';
@@ -155,6 +156,13 @@ export const ImportLabelsModal = ({ open, onClose, onSubmit, isSubmitting, defau
         fd.append('serviceType', defaultServiceType);
       }
       const { data } = await http.post('/labels/import/excel', fd);
+      if (Number(data?.total ?? 0) > MAX_IMPORT_ROWS) {
+        setRows([]);
+        setPreviewId(null);
+        setServerResult(null);
+        setError(`Import limit exceeded. Please upload fewer than ${MAX_IMPORT_ROWS} rows at a time.`);
+        return;
+      }
       setPreviewId(data.previewId ?? null);
       setServerResult(data);
       const mapped: ImportRow[] = (data.previewSample ?? []).map((r: any, idx: number) => {
@@ -184,6 +192,10 @@ export const ImportLabelsModal = ({ open, onClose, onSubmit, isSubmitting, defau
 
   const handleSubmit = async () => {
     if (!canSubmit) return;
+    if (rows.length > MAX_IMPORT_ROWS) {
+      setError(`Import limit exceeded. Please upload fewer than ${MAX_IMPORT_ROWS} rows at a time.`);
+      return;
+    }
     setError(null);
     setLocalSubmitting(true);
     try {
@@ -306,6 +318,7 @@ export const ImportLabelsModal = ({ open, onClose, onSubmit, isSubmitting, defau
                       Required columns: <span className="font-semibold">label</span> (or url) and <span className="font-semibold">serviceType</span>. For <span className="font-semibold">active</span> / <span className="font-semibold">empty</span>, <span className="font-semibold">trackingNumber</span> is required.
                     </p>
                   )}
+                  <p className="text-xs text-slate-500">Limit: up to {MAX_IMPORT_ROWS} rows per import.</p>
               <div className="flex gap-2">
                 <button
                   type="button"

@@ -4,19 +4,6 @@ import { Order, OrderStatus, OrderType, PaymentStatus } from '../../api/orders';
 import { Table, TableColumn } from '../Table';
 import { formatCostText } from '../../lib/pricing';
 
-type OrdersTableProps<T extends Order = Order> = {
-  orders: T[];
-  onRowClick?: (order: T) => void;
-  columns?: TableColumn<T>[];
-  hideTracking?: boolean;
-  showDesignSubtype?: boolean;
-  designSubtypeLabels?: Record<string, string>;
-  // Optional controlled selection
-  selectedIds?: Set<string>;
-  onToggleRow?: (id: string, checked: boolean) => void;
-  onToggleAll?: (checked: boolean) => void;
-};
-
 const typeLabels: Record<OrderType, string> = {
   active_tracking: 'Active tracking',
   empty_package: 'Empty package',
@@ -83,35 +70,105 @@ const extractDomain = (url?: string | null) => {
   }
 };
 
-const resolveAssets = (order: Order) => {
-  const candidates = [order.resultUrl, order.labelUrl, order.labelImageUrl, ...(order.assetUrls ?? [])].filter(Boolean) as string[];
-  const unique = Array.from(new Set(candidates));
-  return unique;
+
+const resolvePrimaryUrl = (order: Order, source: 'label' | 'result') => {
+  const candidates = source === 'result'
+    ? [order.resultUrl, order.labelUrl, order.labelImageUrl]
+    : [order.labelUrl, order.labelImageUrl, order.resultUrl];
+  return (candidates.filter(Boolean)[0] as string | undefined) ?? null;
 };
 
-const resolvePrimaryResultUrl = (order: Order) => {
-  const candidates = order.orderType === 'design'
-    ? [order.resultUrl, order.labelUrl, order.labelImageUrl, ...(order.assetUrls ?? [])]
-    : [order.labelUrl, order.labelImageUrl, order.resultUrl, ...(order.assetUrls ?? [])];
-  return (candidates.filter(Boolean)[0] as string | undefined) ?? null;
+const resolveAssets = (order: Order) => {
+  const candidates = [order.resultUrl, order.labelUrl, order.labelImageUrl, ...(order.assetUrls ?? [])].filter(Boolean) as string[];
+  return Array.from(new Set(candidates));
 };
 
 const isImageUrl = (url: string) => /\.(png|jpe?g|gif|webp)$/i.test(url.split('?')[0]);
 
-type AssetsPreviewPayload<T extends Order = Order> = {
-  order: T;
+const AssetsPreviewModal = ({
+  open,
+  images,
+  others,
+  onClose,
+  onImageClick,
+}: {
+  open: boolean;
   images: string[];
   others: string[];
+  onClose: () => void;
+  onImageClick: (url: string) => void;
+}) => {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4" onClick={onClose}>
+      <div className="w-full max-w-3xl rounded-2xl bg-white p-6 shadow-2xl" onClick={(event) => event.stopPropagation()}>
+        <div className="flex items-center justify-between">
+          <h3 className="text-lg font-semibold text-ink">Assets</h3>
+          <button className="rounded-full border border-slate-200 px-3 py-1 text-sm font-semibold text-slate-700" onClick={onClose}>
+            Close
+          </button>
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {images.map((url) => (
+            <button
+              key={url}
+              type="button"
+              className="group overflow-hidden rounded-lg border border-slate-100 shadow-sm"
+              onClick={() => onImageClick(url)}
+            >
+              <img src={url} alt="Asset" className="h-32 w-full object-cover transition group-hover:scale-[1.02]" />
+            </button>
+          ))}
+        </div>
+        {others.length > 0 && (
+          <div className="mt-4">
+            <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Other files</div>
+            <ul className="mt-2 space-y-2 text-sm">
+              {others.map((url) => (
+                <li key={url}>
+                  <a href={url} target="_blank" rel="noreferrer" className="break-all text-sky-700 hover:underline">
+                    {url}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 };
 
-export const buildDefaultOrderColumns = <T extends Order = Order>(options?: {
-  onOrderClick?: (order: T) => void;
-  onAssetsPreview?: (payload: AssetsPreviewPayload<T>) => void;
-  onImagePreview?: (url: string) => void;
+type OrdersTableProps<T extends Order = Order> = {
+  orders: T[];
+  onRowClick?: (order: T) => void;
+  columns?: TableColumn<T>[];
   hideTracking?: boolean;
   showDesignSubtype?: boolean;
   designSubtypeLabels?: Record<string, string>;
-}): TableColumn<T>[] => {
+  primaryUrlSource?: 'label' | 'result';
+  labelHeader?: string;
+  showAssets?: boolean;
+  // Optional controlled selection
+  selectedIds?: Set<string>;
+  onToggleRow?: (id: string, checked: boolean) => void;
+  onToggleAll?: (checked: boolean) => void;
+};
+
+export function buildDefaultOrderColumns<T extends Order = Order>(options?: {
+  onOrderClick?: (order: T) => void;
+  onImagePreview?: (url: string) => void;
+  onAssetsPreview?: (payload: { order: T; images: string[]; others: string[] }) => void;
+  hideTracking?: boolean;
+  showDesignSubtype?: boolean;
+  designSubtypeLabels?: Record<string, string>;
+  primaryUrlSource?: 'label' | 'result';
+  labelHeader?: string;
+  showAssets?: boolean;
+}): TableColumn<T>[] {
+  const primaryUrlSource = options?.primaryUrlSource ?? 'label';
+  const labelHeader = options?.labelHeader ?? (primaryUrlSource === 'result' ? 'Result' : 'Label');
+  const showAssets = options?.showAssets ?? false;
   const cols: TableColumn<T>[] = [
     {
       key: 'id',
@@ -119,7 +176,7 @@ export const buildDefaultOrderColumns = <T extends Order = Order>(options?: {
       render: (order) => (
         <button
           type="button"
-          className="text-base font-semibold text-slate-900 underline-offset-4 hover:text-slate-600 hover:underline"
+          className="w-36 break-words text-left text-sm font-semibold text-slate-900 line-clamp-2 underline-offset-4 hover:text-slate-600 hover:underline"
           onClick={(event) => {
             if (options?.onOrderClick) {
               event.stopPropagation();
@@ -169,16 +226,16 @@ export const buildDefaultOrderColumns = <T extends Order = Order>(options?: {
     cols.push({
       key: 'trackingCode',
       header: 'Tracking Code',
-      render: (order) => (order.trackingCode ? <span className="font-mono text-sm font-semibold text-slate-900">{order.trackingCode}</span> : <span className="text-slate-400">—</span>),
+      render: (order) => (order.trackingCode ? <span className="font-mono text-base font-semibold text-slate-900">{order.trackingCode}</span> : <span className="text-slate-400">—</span>),
     });
   }
 
   cols.push(
     {
-      key: 'resultUrl',
-      header: 'Result',
+      key: 'labelUrl',
+      header: labelHeader,
       render: (order) => {
-        const url = resolvePrimaryResultUrl(order);
+        const url = resolvePrimaryUrl(order, primaryUrlSource);
         if (!url) return <span className="text-xs text-slate-400">—</span>;
         if (isImageUrl(url)) {
           return (
@@ -195,7 +252,7 @@ export const buildDefaultOrderColumns = <T extends Order = Order>(options?: {
                 }
               }}
             >
-              <img src={url} alt="Result preview" className="h-full w-full object-cover transition group-hover:scale-105" />
+              <img src={url} alt="Label preview" className="h-full w-full object-cover transition group-hover:scale-105" />
             </button>
           );
         }
@@ -224,17 +281,10 @@ export const buildDefaultOrderColumns = <T extends Order = Order>(options?: {
       header: 'Order Status',
       render: (order) => orderStatusBadge(order.orderStatus),
     },
-    {
-      key: 'paymentStatus',
-      header: 'Payment Status',
-      render: (order) => paymentStatusBadge(order.paymentStatus),
-    },
-    {
-      key: 'createdAt',
-      header: 'Created',
-      render: (order) => <span className="text-sm text-slate-700">{formatDate.format(new Date(order.createdAt))}</span>,
-    },
-    {
+  );
+
+  if (showAssets) {
+    cols.push({
       key: 'assets',
       header: 'Assets',
       render: (order) => {
@@ -260,117 +310,43 @@ export const buildDefaultOrderColumns = <T extends Order = Order>(options?: {
           );
         }
 
-        if (imageAssets.length > 0) {
-          const primary = imageAssets[0];
-          const extra = imageAssets.length - 1 + otherAssets.length;
-          return (
-            <button
-              type="button"
-              className="group relative inline-flex h-12 w-12 overflow-hidden rounded-lg border border-slate-200 shadow-sm"
-              title={assets.join('\n')}
-              onClick={(event) => {
-                event.stopPropagation();
-                options?.onAssetsPreview?.({ order, images: imageAssets, others: otherAssets });
-              }}
-            >
-              <img src={primary} alt="Asset preview" className="h-full w-full object-cover transition group-hover:scale-105" />
-              {extra > 0 && (
-                <span className="absolute inset-0 flex items-center justify-center bg-black/40 text-xs font-semibold text-white">+{extra}</span>
-              )}
-            </button>
-          );
-        }
-
-        const primary = assets[0];
-        const domain = extractDomain(primary);
-        const extra = assets.length - 1;
-        const label = `${domain || 'Assets'}${extra > 0 ? ` +${extra}` : ''}`;
         return (
-          <button
-            type="button"
-            className="text-sm font-semibold text-slate-800 underline-offset-4 hover:text-slate-950 hover:underline"
-            title={assets.join('\n')}
-            onClick={(event) => {
-              event.stopPropagation();
-              options?.onAssetsPreview?.({ order, images: imageAssets, others: otherAssets });
-            }}
-          >
-            {label}
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            {imageAssets.slice(0, 2).map((img) => (
+              <button
+                key={img}
+                type="button"
+                className="group relative inline-flex h-10 w-10 overflow-hidden rounded-md border border-slate-200"
+                title={img}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  options?.onImagePreview?.(img);
+                }}
+              >
+                <img src={img} alt="Asset preview" className="h-full w-full object-cover transition group-hover:scale-105" />
+              </button>
+            ))}
+            {otherAssets.length > 0 && (
+              <button
+                type="button"
+                className="rounded-full border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-700"
+                title={otherAssets.join(', ')}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  options?.onAssetsPreview?.({ order, images: imageAssets, others: otherAssets });
+                }}
+              >
+                +{otherAssets.length} file{otherAssets.length === 1 ? '' : 's'}
+              </button>
+            )}
+          </div>
         );
       },
-    },
-  );
+    });
+  }
 
   return cols;
-};
-
-const AssetsPreviewModal = ({ open, images, others, onClose, onImageClick }: { open: boolean; images: string[]; others: string[]; onClose: () => void; onImageClick: (url: string) => void }) => {
-  if (!open) return null;
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-      <div className="w-full max-w-3xl rounded-2xl bg-white p-6 shadow-2xl">
-        <div className="flex items-center justify-between">
-          <h4 className="text-lg font-semibold text-ink">Assets</h4>
-          <button className="rounded-full border border-slate-200 px-3 py-1 text-sm font-semibold text-slate-700 hover:border-slate-300" onClick={onClose}>
-            Close
-          </button>
-        </div>
-        {images.length > 0 && (
-          <div className="mt-4">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Images</p>
-            <div className="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
-              {images.map((url) => (
-                <button
-                  key={url}
-                  type="button"
-                  className="group overflow-hidden rounded-lg border border-slate-200 shadow-sm"
-                  onClick={() => onImageClick(url)}
-                  title={url}
-                >
-                  <img src={url} alt="Asset" className="h-24 w-full object-cover transition group-hover:scale-105" />
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {others.length > 0 && (
-          <div className="mt-4">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Files / Links</p>
-            <ul className="mt-2 space-y-2 text-sm">
-              {others.map((url) => (
-                <li key={url} className="flex flex-wrap items-center gap-2">
-                  <span className="truncate text-sky-700" title={url}>
-                    {url}
-                  </span>
-                  <div className="flex gap-2 text-[11px] text-slate-500">
-                    <a className="rounded border border-slate-200 px-2 py-1 font-semibold hover:border-slate-300" href={url} target="_blank" rel="noreferrer">
-                      Open
-                    </a>
-                    <button
-                      type="button"
-                      className="rounded border border-slate-200 px-2 py-1 font-semibold hover:border-slate-300"
-                      onClick={async () => {
-                        try {
-                          await navigator?.clipboard?.writeText(url);
-                        } catch (error) {
-                          /* noop */
-                        }
-                      }}
-                    >
-                      Copy
-                    </button>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-};
+}
 
 const Lightbox = ({ src, onClose }: { src: string | null; onClose: () => void }) => {
   const [scale, setScale] = useState(1);
@@ -446,6 +422,9 @@ export const OrdersTable = <T extends Order = Order>({
   hideTracking,
   showDesignSubtype,
   designSubtypeLabels,
+  primaryUrlSource,
+  labelHeader,
+  showAssets,
   selectedIds: selectedIdsProp,
   onToggleRow: onToggleRowProp,
   onToggleAll: onToggleAllProp,
@@ -460,13 +439,16 @@ export const OrdersTable = <T extends Order = Order>({
     }
     return buildDefaultOrderColumns<T>({
       onOrderClick: onRowClick,
-      onAssetsPreview: ({ images, others }) => setAssetPreview({ open: true, images, others }),
       onImagePreview: (url) => setLightboxSrc(url),
+      onAssetsPreview: ({ images, others }) => setAssetPreview({ open: true, images, others }),
       hideTracking,
       showDesignSubtype,
       designSubtypeLabels,
+      primaryUrlSource,
+      labelHeader,
+      showAssets,
     });
-  }, [columns, onRowClick, hideTracking, showDesignSubtype, designSubtypeLabels]);
+  }, [columns, onRowClick, hideTracking, showDesignSubtype, designSubtypeLabels, primaryUrlSource, labelHeader, showAssets]);
 
   const isControlled = selectedIdsProp !== undefined;
   const selectedIds = isControlled ? selectedIdsProp! : internalSelectedIds;
