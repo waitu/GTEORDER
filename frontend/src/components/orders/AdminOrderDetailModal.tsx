@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { ReactNode, useEffect, useMemo, useState } from 'react';
 import { Order, OrderStatus, PaymentStatus } from '../../api/orders';
 import { orderStatusBadge, paymentStatusBadge } from './OrdersTable';
+import { AlertModal } from '../AlertModal';
+import { ConfirmModal } from '../ConfirmModal';
 
 export type AdminOrderDetailModalProps = {
   open: boolean;
@@ -63,11 +65,29 @@ export const AdminOrderDetailModal = ({
   const [zoom, setZoom] = useState(1);
   const [notesDraft, setNotesDraft] = useState(order?.adminNote ?? order?.internalNotes ?? '');
   const [resultDraft, setResultDraft] = useState(order?.resultUrl ?? '');
+  const [alertState, setAlertState] = useState<{ title: string; description?: ReactNode } | null>(null);
+  const [pendingAction, setPendingAction] = useState<
+    | null
+    | { type: 'complete'; orderId: string; resultUrl: string }
+    | { type: 'fail'; orderId: string; adminNote: string }
+  >(null);
 
   useEffect(() => {
     setNotesDraft(order?.adminNote ?? order?.internalNotes ?? '');
     setResultDraft(order?.resultUrl ?? '');
   }, [order?.adminNote, order?.internalNotes, order?.resultUrl]);
+
+  useEffect(() => {
+    if (!open) {
+      setAlertState(null);
+      setPendingAction(null);
+      return;
+    }
+    // When switching orders while the modal is open, clear any stale confirmations.
+    setAlertState(null);
+    setPendingAction(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, order?.id]);
 
   useEffect(() => {
     setZoom(1);
@@ -88,8 +108,8 @@ export const AdminOrderDetailModal = ({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-      <div className="w-full max-w-4xl rounded-2xl bg-white p-6 shadow-2xl">
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 px-4 py-6">
+      <div className="w-full max-w-5xl max-h-[calc(100vh-3rem)] overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
             <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Admin order detail</p>
@@ -199,13 +219,14 @@ export const AdminOrderDetailModal = ({
                   className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-500 disabled:opacity-60"
                   onClick={() => {
                     if (!order) return;
-                    if (!resultDraft || resultDraft.trim() === '') return alert('Please provide a result URL before marking completed.');
-                    if (!window.confirm('Mark this order as completed? This will save the result URL and set the status to completed.')) return;
-                    try {
-                      if (typeof onComplete === 'function') onComplete(order.id, resultDraft);
-                    } catch (err) {
-                      // noop - parent handles errors and toasts
+                    if (!resultDraft || resultDraft.trim() === '') {
+                      setAlertState({
+                        title: 'Missing result URL',
+                        description: 'Please provide a result URL before marking this order as completed.',
+                      });
+                      return;
                     }
+                    setPendingAction({ type: 'complete', orderId: order.id, resultUrl: resultDraft.trim() });
                   }}
                   disabled={isSavingResult || isSavingStatus || order?.orderStatus !== 'processing'}
                 >
@@ -351,13 +372,14 @@ export const AdminOrderDetailModal = ({
               className="ml-2 rounded-md bg-rose-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-rose-500 disabled:opacity-60"
               onClick={() => {
                 if (!order) return;
-                if (!notesDraft || notesDraft.trim() === '') return alert('Please add an admin note before marking failed.');
-                if (!window.confirm('Mark this order as failed? This will save the admin note and set the status to failed.')) return;
-                try {
-                  if (typeof onFail === 'function') onFail(order.id, notesDraft);
-                } catch (err) {
-                  // noop - parent handles errors and toasts
+                if (!notesDraft || notesDraft.trim() === '') {
+                  setAlertState({
+                    title: 'Missing admin note',
+                    description: 'Please add an admin note before marking this order as failed.',
+                  });
+                  return;
                 }
+                setPendingAction({ type: 'fail', orderId: order.id, adminNote: notesDraft.trim() });
               }}
               disabled={isSavingNotes || isSavingStatus || order?.orderStatus !== 'processing'}
             >
@@ -365,6 +387,49 @@ export const AdminOrderDetailModal = ({
             </button>
           </div>
         </div>
+
+        <AlertModal
+          open={!!alertState}
+          title={alertState?.title ?? ''}
+          description={alertState?.description}
+          onClose={() => setAlertState(null)}
+        />
+
+        <ConfirmModal
+          open={pendingAction?.type === 'complete'}
+          title="Mark this order as completed?"
+          description="This will save the result URL and set the status to completed."
+          confirmLabel="Mark completed"
+          onCancel={() => setPendingAction(null)}
+          onConfirm={() => {
+            if (!pendingAction || pendingAction.type !== 'complete') return;
+            const action = pendingAction;
+            setPendingAction(null);
+            try {
+              if (typeof onComplete === 'function') onComplete(action.orderId, action.resultUrl);
+            } catch {
+              // parent handles errors/toasts
+            }
+          }}
+        />
+
+        <ConfirmModal
+          open={pendingAction?.type === 'fail'}
+          title="Mark this order as failed?"
+          description="This will save the admin note and set the status to failed."
+          confirmLabel="Mark failed"
+          onCancel={() => setPendingAction(null)}
+          onConfirm={() => {
+            if (!pendingAction || pendingAction.type !== 'fail') return;
+            const action = pendingAction;
+            setPendingAction(null);
+            try {
+              if (typeof onFail === 'function') onFail(action.orderId, action.adminNote);
+            } catch {
+              // parent handles errors/toasts
+            }
+          }}
+        />
 
         {lightboxSrc && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 px-4" onClick={() => setLightboxSrc(null)}>

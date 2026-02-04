@@ -4,7 +4,7 @@ import clsx from 'clsx';
 type ConfirmModalProps = {
   open: boolean;
   title: string;
-  description?: string;
+  description?: ReactNode;
   confirmLabel?: string;
   cancelLabel?: string;
   onConfirm: () => void;
@@ -27,7 +27,7 @@ export const ConfirmModal = ({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4">
       <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl">
         <h3 className="text-lg font-semibold text-ink">{title}</h3>
-        {description && <p className="mt-2 text-sm text-slate-600">{description}</p>}
+        {description && <div className="mt-2 text-sm text-slate-600 whitespace-pre-line">{description}</div>}
         <div className="mt-6 flex justify-end gap-3 text-sm font-semibold">
           <button
             className="rounded-lg border border-slate-200 px-4 py-2 text-slate-700 hover:bg-slate-50"

@@ -48,12 +48,17 @@ export class CreditTopup {
   @Column({ name: 'transfer_note', type: 'varchar', unique: true })
   transferNote!: string;
 
+  // PingPong transaction id submitted by user (optional for legacy rows).
+  @Column({ name: 'pingpong_tx_id', type: 'varchar', nullable: true })
+  pingpongTxId?: string | null;
+
   @Column({ name: 'note', type: 'text', nullable: true })
   note?: string | null;
 
   // Stored as internal path (not publicly accessible). Use API to view.
-  @Column({ name: 'bill_image_url', type: 'text' })
-  billImageUrl!: string;
+  // New PingPong flow uses a transaction id instead of an uploaded bill image.
+  @Column({ name: 'bill_image_url', type: 'text', nullable: true })
+  billImageUrl?: string | null;
 
   @Column({ type: 'varchar', default: CreditTopupStatus.PENDING })
   status!: CreditTopupStatus;

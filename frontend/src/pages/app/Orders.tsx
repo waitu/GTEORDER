@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { DashboardLayout } from '../../components/DashboardLayout';
 import { OrdersFilterBar } from '../../components/orders/OrdersFilterBar';
 import { OrdersTable, buildDefaultOrderColumns } from '../../components/orders/OrdersTable';
 import { EmptyState } from '../../components/EmptyState';
-import { fetchOrder, fetchOrders, Order, OrderStatus, OrderType, OrdersQueryParams, OrdersResponse, PaymentStatus } from '../../api/orders';
+import { fetchOrder, fetchOrders, Order, OrderStatus, OrderType, OrdersQueryParams, OrdersResponse, PaymentStatus, payOrders } from '../../api/orders';
 import { OrderDetailModal } from '../../components/orders/OrderDetailModal';
 import { ImportLabelsModal } from '../../components/orders/ImportLabelsModal';
 import CreateDesignModal from '../../components/orders/CreateDesignModal';
+import { ConfirmModal } from '../../components/ConfirmModal';
+import { AlertModal } from '../../components/AlertModal';
 
 const ORDER_TYPES: OrderType[] = ['active_tracking', 'empty_package', 'design', 'other'];
 const STANDARD_ORDER_TYPES: Array<Extract<OrderType, 'active_tracking' | 'empty_package'>> = ['active_tracking', 'empty_package'];
@@ -61,6 +63,12 @@ const OrdersPageBase = ({ view }: { view: OrdersView }) => {
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [isCreateDesignOpen, setIsCreateDesignOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [payMessage, setPayMessage] = useState<string | null>(null);
+  const [payConfirmOpen, setPayConfirmOpen] = useState(false);
+  const [pendingPayIds, setPendingPayIds] = useState<string[]>([]);
+  const [payResultOpen, setPayResultOpen] = useState(false);
+  const [payResult, setPayResult] = useState<{ paidOrderIds: string[]; unpaidOrderIds: string[] } | null>(null);
 
   const queryState: OrdersQueryParams = useMemo(() => {
     const base: OrdersQueryParams = {
@@ -227,6 +235,67 @@ const OrdersPageBase = ({ view }: { view: OrdersView }) => {
     setIsDetailOpen(true);
   }, []);
 
+  // Reset selection when filters/page change.
+  useEffect(() => {
+    setSelectedIds(new Set());
+    setPayMessage(null);
+  }, [view, queryState.orderType, queryState.orderStatus, queryState.paymentStatus, queryState.search, queryState.from, queryState.to, queryState.page, queryState.limit, queryState.designSubtype]);
+
+  const unpaidSelectedCount = useMemo(() => {
+    if (selectedIds.size === 0) return 0;
+    const byId = new Map(visibleOrders.map((o) => [o.id, o] as const));
+    let count = 0;
+    selectedIds.forEach((id) => {
+      const o = byId.get(id);
+      if (o?.paymentStatus === 'unpaid') count += 1;
+    });
+    return count;
+  }, [selectedIds, visibleOrders]);
+
+  const payMutation = useMutation({
+    mutationFn: (ids: string[]) => payOrders(ids),
+    onSuccess: async (res) => {
+      setSelectedIds(new Set());
+      await queryClient.invalidateQueries({ queryKey: ['orders', view] });
+      setPayResult(res);
+      setPayResultOpen(true);
+      if (res.unpaidOrderIds.length > 0) {
+        setPayMessage(`Paid ${res.paidOrderIds.length}. Remaining unpaid: ${res.unpaidOrderIds.length} (insufficient balance).`);
+      } else {
+        setPayMessage(`Paid ${res.paidOrderIds.length} order(s).`);
+      }
+    },
+    onError: (err: any) => {
+      const msg = err?.response?.data?.message ?? err?.message ?? 'Payment failed';
+      setPayMessage(Array.isArray(msg) ? msg.join(', ') : String(msg));
+    },
+  });
+
+  const toggleRow = useCallback(
+    (id: string, checked: boolean) => {
+      const order = visibleOrders.find((o) => o.id === id);
+      if (!order || order.paymentStatus !== 'unpaid') return;
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        if (checked) next.add(id);
+        else next.delete(id);
+        return next;
+      });
+    },
+    [visibleOrders],
+  );
+
+  const toggleAll = useCallback(
+    (checked: boolean) => {
+      if (!checked) {
+        setSelectedIds(new Set());
+        return;
+      }
+      setSelectedIds(new Set(visibleOrders.filter((o) => o.paymentStatus === 'unpaid').map((o) => o.id)));
+    },
+    [visibleOrders],
+  );
+
   const closeDetail = useCallback(() => {
     setIsDetailOpen(false);
     setSelectedOrder(null);
@@ -308,7 +377,83 @@ const OrdersPageBase = ({ view }: { view: OrdersView }) => {
         >
           {isExporting ? 'Exporting…' : 'Export'}
         </button>
+
+        <button
+          type="button"
+          className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold shadow-sm ${
+            unpaidSelectedCount === 0 || payMutation.isPending
+              ? 'bg-slate-200 text-slate-500'
+              : 'bg-emerald-600 text-white hover:bg-emerald-700'
+          }`}
+          onClick={() => {
+            const ids = visibleOrders.filter((o) => o.paymentStatus === 'unpaid' && selectedIds.has(o.id)).map((o) => o.id);
+            if (ids.length === 0) return;
+            setPendingPayIds(ids);
+            setPayConfirmOpen(true);
+          }}
+          disabled={unpaidSelectedCount === 0 || payMutation.isPending}
+          title={unpaidSelectedCount === 0 ? 'Select unpaid orders to pay' : undefined}
+        >
+          {payMutation.isPending ? 'Paying…' : `Pay selected (${unpaidSelectedCount})`}
+        </button>
       </div>
+
+      <ConfirmModal
+        open={payConfirmOpen}
+        title="Confirm payment"
+        description={`Pay ${pendingPayIds.length} selected unpaid order(s)?`}
+        confirmLabel={payMutation.isPending ? 'Paying…' : 'Pay now'}
+        onCancel={() => {
+          if (payMutation.isPending) return;
+          setPayConfirmOpen(false);
+          setPendingPayIds([]);
+        }}
+        onConfirm={() => {
+          if (pendingPayIds.length === 0) return;
+          setPayConfirmOpen(false);
+          payMutation.mutate(pendingPayIds);
+        }}
+        confirmDisabled={payMutation.isPending || pendingPayIds.length === 0}
+      />
+
+      <AlertModal
+        open={payResultOpen}
+        title="Payment result"
+        onClose={() => {
+          setPayResultOpen(false);
+          setPayResult(null);
+        }}
+        description={
+          payResult ? (
+            <div>
+              <div>
+                Paid: <span className="font-semibold">{payResult.paidOrderIds.length}</span>
+              </div>
+              <div className="mt-1">
+                Unpaid: <span className="font-semibold">{payResult.unpaidOrderIds.length}</span>
+                {payResult.unpaidOrderIds.length > 0 ? ' (insufficient credits)' : ''}
+              </div>
+              {payResult.unpaidOrderIds.length > 0 && (
+                <div className="mt-3">
+                  <div className="font-semibold">Unpaid order IDs (first 10)</div>
+                  <div className="mt-1 break-all rounded-lg border border-slate-200 bg-slate-50 p-2 text-xs text-slate-700">
+                    {payResult.unpaidOrderIds.slice(0, 10).join(', ')}
+                    {payResult.unpaidOrderIds.length > 10 ? '…' : ''}
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            '—'
+          )
+        }
+      />
+
+      {payMessage && (
+        <div className="mt-3 rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm">
+          {payMessage}
+        </div>
+      )}
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {[{
@@ -390,6 +535,9 @@ const OrdersPageBase = ({ view }: { view: OrdersView }) => {
             orders={visibleOrders}
             onRowClick={handleRowClick}
             columns={buildDefaultOrderColumns({ onOrderClick: handleRowClick })}
+            selectedIds={selectedIds}
+            onToggleRow={toggleRow}
+            onToggleAll={toggleAll}
           />
         )}
 
@@ -400,6 +548,9 @@ const OrdersPageBase = ({ view }: { view: OrdersView }) => {
             hideTracking
             showDesignSubtype
             designSubtypeLabels={DESIGN_SUBTYPE_LABELS}
+            selectedIds={selectedIds}
+            onToggleRow={toggleRow}
+            onToggleAll={toggleAll}
           />
         )}
 

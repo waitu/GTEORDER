@@ -3,8 +3,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AdminLayout } from '../../components/AdminLayout';
 import { ConfirmModal } from '../../components/ConfirmModal';
 import { RejectModal } from '../../components/RejectModal';
+import { AlertModal } from '../../components/AlertModal';
 import { fetchAdminCreditTopups, approveCreditTopup, rejectCreditTopup, AdminCreditTopup, CreditTopupStatus } from '../../api/admin';
-import { fetchTopupBillBlob } from '../../api/creditTopups';
 
 const formatTime = (value?: string | null) => {
   if (!value) return '—';
@@ -28,13 +28,14 @@ export const AdminCreditTopupsPage = () => {
   const [status, setStatus] = useState<CreditTopupStatus>('pending');
   const [confirm, setConfirm] = useState<{ open: boolean; topup?: AdminCreditTopup }>({ open: false });
   const [reject, setReject] = useState<{ open: boolean; topup?: AdminCreditTopup }>({ open: false });
-  const [billModal, setBillModal] = useState<{ open: boolean; url?: string; title?: string }>({ open: false });
-  const [billLoading, setBillLoading] = useState(false);
-  const [billError, setBillError] = useState<string | null>(null);
+  const [q, setQ] = useState('');
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(50);
+  const [alert, setAlert] = useState<{ open: boolean; title: string; message: string } | null>(null);
 
   const { data, isLoading, isError, isFetching } = useQuery({
-    queryKey: ['admin', 'credit-topups', status],
-    queryFn: () => fetchAdminCreditTopups(status),
+    queryKey: ['admin', 'credit-topups', status, q, page, limit],
+    queryFn: () => fetchAdminCreditTopups({ status, q, page, limit }),
   });
 
   const approveMutation = useMutation({
@@ -42,6 +43,11 @@ export const AdminCreditTopupsPage = () => {
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['admin', 'credit-topups'], exact: false });
       await queryClient.invalidateQueries({ queryKey: ['balance'], exact: false });
+      setAlert({ open: true, title: 'Approved', message: 'Top-up approved and credits were added.' });
+    },
+    onError: (err: any) => {
+      const msg = err?.response?.data?.message ?? err?.message ?? 'Approve failed';
+      setAlert({ open: true, title: 'Approve failed', message: Array.isArray(msg) ? msg.join(', ') : String(msg) });
     },
   });
 
@@ -49,28 +55,26 @@ export const AdminCreditTopupsPage = () => {
     mutationFn: (params: { id: string; adminNote: string }) => rejectCreditTopup(params.id, params.adminNote),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['admin', 'credit-topups'], exact: false });
+      setAlert({ open: true, title: 'Rejected', message: 'Top-up request was rejected.' });
+    },
+    onError: (err: any) => {
+      const msg = err?.response?.data?.message ?? err?.message ?? 'Reject failed';
+      setAlert({ open: true, title: 'Reject failed', message: Array.isArray(msg) ? msg.join(', ') : String(msg) });
     },
   });
 
-  const rows = useMemo(() => data ?? [], [data]);
+  const rows = useMemo(() => data?.data ?? [], [data]);
+  const meta = data?.meta;
+  const totalPages = Math.max(1, Math.ceil((meta?.total ?? 0) / (meta?.limit ?? limit)));
 
-  const openBill = async (topup: AdminCreditTopup) => {
-    setBillError(null);
-    setBillLoading(true);
-    try {
-      const blob = await fetchTopupBillBlob(topup.billImageUrl);
-      const url = URL.createObjectURL(blob);
-      setBillModal({ open: true, url, title: `Bill • ${topup.user?.email ?? topup.user.id}` });
-    } catch (err: any) {
-      setBillError(err?.message || 'Could not load bill image');
-    } finally {
-      setBillLoading(false);
-    }
+  const formatUsd = (n?: number | null) => {
+    if (n == null) return '—';
+    return `$${Number(n).toFixed(2)}`;
   };
 
-  const closeBill = () => {
-    if (billModal.url) URL.revokeObjectURL(billModal.url);
-    setBillModal({ open: false });
+  const formatCredits = (n?: number | null) => {
+    if (n == null) return '—';
+    return `${Number(n).toLocaleString(undefined, { maximumFractionDigits: 2 })} cr`;
   };
 
   return (
@@ -78,18 +82,44 @@ export const AdminCreditTopupsPage = () => {
       <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
-            <p className="text-sm text-slate-600">Manual PingPong top-ups (no auto credit). Approve will add credits immediately.</p>
+            <p className="text-sm text-slate-600">PingPong top-ups (TXID-based). Approve will add credits immediately.</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              className="w-72 max-w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+              placeholder="Search email / TXID / transfer note"
+              value={q}
+              onChange={(e) => {
+                setQ(e.target.value);
+                setPage(1);
+              }}
+            />
             <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Status</label>
             <select
               className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
               value={status}
-              onChange={(e) => setStatus(e.target.value as CreditTopupStatus)}
+              onChange={(e) => {
+                setStatus(e.target.value as CreditTopupStatus);
+                setPage(1);
+              }}
             >
               <option value="pending">pending</option>
               <option value="approved">approved</option>
               <option value="rejected">rejected</option>
+            </select>
+
+            <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Page size</label>
+            <select
+              className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
+              value={limit}
+              onChange={(e) => {
+                setLimit(Number(e.target.value));
+                setPage(1);
+              }}
+            >
+              <option value={20}>20</option>
+              <option value={50}>50</option>
+              <option value={100}>100</option>
             </select>
           </div>
         </div>
@@ -103,9 +133,12 @@ export const AdminCreditTopupsPage = () => {
               <thead className="border-b border-slate-100 text-xs font-semibold uppercase tracking-wide text-slate-500">
                 <tr>
                   <th className="py-3 pr-4">User</th>
-                  <th className="py-3 pr-4">Amount</th>
+                  <th className="py-3 pr-4">Paid (USD)</th>
+                  <th className="py-3 pr-4">Credits</th>
+                  <th className="py-3 pr-4">Package</th>
                   <th className="py-3 pr-4">Method</th>
-                  <th className="py-3 pr-4">Transfer note</th>
+                  <th className="py-3 pr-4">TXID</th>
+                  <th className="py-3 pr-4">User note</th>
                   <th className="py-3 pr-4">Status</th>
                   <th className="py-3 pr-4">Created</th>
                   <th className="py-3 pr-4">Reviewed</th>
@@ -120,22 +153,25 @@ export const AdminCreditTopupsPage = () => {
                       <div className="font-semibold text-ink">{t.user?.email ?? '—'}</div>
                       <div className="text-xs text-slate-500">{t.user?.id}</div>
                     </td>
-                    <td className="py-3 pr-4 font-semibold">${Number(t.amount).toFixed(2)}</td>
+                    <td className="py-3 pr-4 font-semibold">{formatUsd(t.amountUsd ?? t.amount)}</td>
+                    <td className="py-3 pr-4 font-semibold">{formatCredits(t.credits ?? t.creditAmount)}</td>
+                    <td className="py-3 pr-4">{t.packageKey ?? '—'}</td>
                     <td className="py-3 pr-4">{t.paymentMethod}</td>
-                    <td className="py-3 pr-4 font-mono text-xs">{t.transferNote}</td>
+                    <td className="py-3 pr-4">
+                      <span
+                        className="block max-w-[220px] truncate font-mono text-xs"
+                        title={t.pingpongTxId ?? t.transferNote ?? ''}
+                      >
+                        {t.pingpongTxId ?? t.transferNote ?? '—'}
+                      </span>
+                    </td>
+                    <td className="py-3 pr-4 text-slate-700">{t.note ?? '—'}</td>
                     <td className="py-3 pr-4"><StatusBadge status={t.status} /></td>
                     <td className="py-3 pr-4">{formatTime(t.createdAt)}</td>
                     <td className="py-3 pr-4">{formatTime(t.reviewedAt)}</td>
                     <td className="py-3 pr-4 text-slate-700">{t.adminNote ?? '—'}</td>
                     <td className="py-3 pr-0">
                       <div className="flex flex-wrap gap-2">
-                        <button
-                          className="rounded-lg border border-slate-200 px-3 py-1 text-sm font-semibold hover:bg-slate-50 disabled:opacity-60"
-                          onClick={() => void openBill(t)}
-                          disabled={billLoading}
-                        >
-                          View bill
-                        </button>
                         {t.status === 'pending' && (
                           <>
                             <button
@@ -160,24 +196,52 @@ export const AdminCreditTopupsPage = () => {
                 ))}
                 {rows.length === 0 && (
                   <tr>
-                    <td colSpan={9} className="py-6 text-center text-sm text-slate-600">
+                    <td colSpan={12} className="py-6 text-center text-sm text-slate-600">
                       No requests.
                     </td>
                   </tr>
                 )}
               </tbody>
             </table>
+
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-2 text-sm">
+              <div className="text-slate-600">
+                Total: <span className="font-semibold text-ink">{meta?.total ?? 0}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  className="rounded-lg border border-slate-200 px-3 py-1 font-semibold text-slate-700 disabled:opacity-60"
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={page <= 1}
+                >
+                  Prev
+                </button>
+                <div className="text-slate-700">
+                  Page <span className="font-semibold">{page}</span> / <span className="font-semibold">{totalPages}</span>
+                </div>
+                <button
+                  className="rounded-lg border border-slate-200 px-3 py-1 font-semibold text-slate-700 disabled:opacity-60"
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={page >= totalPages}
+                >
+                  Next
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
-        {billError && <p className="mt-3 text-sm text-rose-700">{billError}</p>}
         {isFetching && !isLoading && <p className="mt-3 text-xs text-slate-500">Refreshing…</p>}
       </div>
 
       <ConfirmModal
         open={confirm.open}
         title="Approve top-up?"
-        description="Credits will be added immediately after approval. This cannot be undone."
+        description={
+          confirm.topup
+            ? `User: ${confirm.topup.user?.email ?? '—'}\nPaid: ${formatUsd(confirm.topup.amountUsd ?? confirm.topup.amount)}\nCredits: ${formatCredits(confirm.topup.credits ?? confirm.topup.creditAmount)}\nTXID: ${confirm.topup.pingpongTxId ?? confirm.topup.transferNote ?? '—'}\n\nCredits will be added immediately after approval. This cannot be undone.`
+            : 'Credits will be added immediately after approval. This cannot be undone.'
+        }
         confirmLabel={approveMutation.isPending ? 'Approving…' : 'Approve'}
         onCancel={() => setConfirm({ open: false })}
         onConfirm={() => {
@@ -206,25 +270,12 @@ export const AdminCreditTopupsPage = () => {
         }}
       />
 
-      {billModal.open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-          <div className="w-full max-w-3xl rounded-2xl bg-white p-4 shadow-2xl">
-            <div className="flex items-center justify-between gap-3">
-              <h3 className="text-lg font-semibold text-ink">{billModal.title ?? 'Bill'}</h3>
-              <button className="rounded-lg border border-slate-200 px-3 py-1 text-sm font-semibold" onClick={closeBill}>
-                Close
-              </button>
-            </div>
-            <div className="mt-3 rounded-xl border border-slate-100 bg-slate-50 p-3">
-              {billModal.url ? (
-                <img src={billModal.url} alt="bill" className="mx-auto max-h-[70vh] w-auto rounded-lg" />
-              ) : (
-                <p className="text-sm text-slate-600">No image.</p>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      <AlertModal
+        open={!!alert?.open}
+        title={alert?.title ?? 'Notice'}
+        description={alert?.message ?? ''}
+        onClose={() => setAlert(null)}
+      />
     </AdminLayout>
   );
 };

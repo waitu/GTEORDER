@@ -41,13 +41,26 @@ export class DesignsService {
       throw new BadRequestException('At least one assetUrl is required');
     }
 
-    // Create order and immediately consume credits within a transaction
+    // Create order and attempt to consume credits within a transaction.
+    // If balance is insufficient, keep the order as UNPAID.
     const saved = await this.dataSource.transaction(async (manager) => {
+      const rawKey = dto.designSubtype.replace(/\s+/g, '_').toLowerCase();
+      const serviceKey = (() => {
+        // frontend may send aliases (e.g. poster)
+        if (rawKey === 'poster' || rawKey === 'canvas' || rawKey === 'canvas_print') return 'poster_canvas';
+        if (rawKey === 'emb_text') return 'embroidery_text';
+        if (rawKey === 'emb_image' || rawKey === 'emb_family' || rawKey === 'emb_pet') return 'embroidery_image';
+        return rawKey;
+      })();
+
+      const expectedCost = await this.creditService.getCostForService(serviceKey);
+
       const draft = manager.create(Order, {
         user: { id: userId } as any,
         orderType: OrderType.DESIGN,
         orderStatus: OrderStatus.PENDING,
         paymentStatus: PaymentStatus.UNPAID,
+        totalCost: expectedCost,
         trackingCode: null,
         carrier: null,
         designSubtype: dto.designSubtype,
@@ -58,8 +71,11 @@ export class DesignsService {
       const savedOrder = await manager.save(draft);
 
       // Debit using canonical pricing for design orders
-      const serviceKey = `design_${dto.designSubtype.replace(/\s+/g, '_').toLowerCase()}`;
-      await this.creditService.consume(userId, serviceKey, savedOrder.id, manager as any);
+      const debit = await this.creditService.tryConsume(userId, serviceKey, savedOrder.id, manager as any);
+      if (debit.ok) {
+        savedOrder.paymentStatus = PaymentStatus.PAID;
+        await manager.save(savedOrder);
+      }
 
       return savedOrder as Order;
     });

@@ -54,7 +54,14 @@ export const AccountPage = () => {
         <div className="grid gap-4 sm:grid-cols-3 text-sm">
           <Stat label="Total trackings" value={profile.totals?.trackings?.toLocaleString?.() ?? '—'} />
           <Stat label="Total empty orders" value={profile.totals?.emptyOrders?.toLocaleString?.() ?? '—'} />
-          <Stat label="Credit balance" value={formatCurrency(profile.totals?.balance)} />
+          <Stat
+            label="Credit balance"
+            value={
+              profile.totals?.balance != null
+                ? `${Number(profile.totals.balance).toLocaleString(undefined, { maximumFractionDigits: 2 })} cr`
+                : '—'
+            }
+          />
         </div>
       </Card>
       </>
@@ -86,5 +93,3 @@ const formatDateTime = (iso?: string) => {
   if (!iso) return '—';
   return new Date(iso).toLocaleString();
 };
-
-const formatCurrency = (n?: number) => (n != null ? n.toLocaleString(undefined, { style: 'currency', currency: 'USD' }) : '—');

@@ -382,6 +382,7 @@ export const AdminOrdersPage = () => {
   } | null>(null);
   const [showSingleConfirm, setShowSingleConfirm] = useState(false);
   const [singleConfirmPayload, setSingleConfirmPayload] = useState<null | { orderId: string; cost: number; balance: number; email?: string | null }>(null);
+  const [archiveConfirm, setArchiveConfirm] = useState<null | { ids: string[] }>(null);
 
   const handleToggleRow = (id: string, checked: boolean) => {
     setSelectedIds((prev) => {
@@ -492,8 +493,7 @@ export const AdminOrdersPage = () => {
   const bulkArchive = () => {
     if (selectedList.length === 0) return setToast('No orders selected');
     if (!canBulkArchive) return setToast('Can only archive orders that are completed or failed');
-    if (!window.confirm(`Archive ${selectedList.length} order(s)? This hides them from the main list.`)) return;
-    bulkArchiveMutation.mutate(selectedList, { onError: (err) => setToast(`Failed to archive: ${(err as Error).message}`) });
+    setArchiveConfirm({ ids: selectedList });
   };
 
   const totalCount = filteredOrders.length;
@@ -760,6 +760,20 @@ export const AdminOrdersPage = () => {
             onError: (err) => setToast(`Failed to start: ${(err as Error).message}`),
             onSuccess: () => setSingleConfirmPayload(null),
           });
+        }}
+      />
+
+      <ConfirmModal
+        open={!!archiveConfirm}
+        title={archiveConfirm ? `Archive ${archiveConfirm.ids.length} order(s)?` : 'Archive orders?'}
+        description="This hides them from the main list."
+        confirmLabel="Archive"
+        onCancel={() => setArchiveConfirm(null)}
+        onConfirm={() => {
+          if (!archiveConfirm) return;
+          const ids = archiveConfirm.ids;
+          setArchiveConfirm(null);
+          bulkArchiveMutation.mutate(ids, { onError: (err) => setToast(`Failed to archive: ${(err as Error).message}`) });
         }}
       />
     </AdminLayout>

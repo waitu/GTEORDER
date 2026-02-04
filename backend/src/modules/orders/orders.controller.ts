@@ -6,6 +6,7 @@ import { ListOrdersDto } from './dto/list-orders.dto.js';
 import { AccessAuthGuard } from '../auth/access-auth.guard.js';
 import { ScanLabelDto } from './dto/scan-label.dto.js';
 import { BulkTrackingImportDto } from './dto/bulk-tracking-import.dto.js';
+import { PayOrdersDto } from './dto/pay-orders.dto.js';
 
 @Controller('orders')
 @UseGuards(AccessAuthGuard)
@@ -36,5 +37,12 @@ export class OrdersController {
     const userId = req.user?.sub;
     if (!userId) throw new Error('Missing user context');
     return this.ordersService.importTrackingBulk(userId, body.trackingCodes);
+  }
+
+  @Post('pay')
+  async payOrders(@Req() req: Request & { user?: any }, @Body() body: PayOrdersDto) {
+    const userId = req.user?.sub;
+    if (!userId) throw new Error('Missing user context');
+    return this.ordersService.payOrders(userId, body.orderIds);
   }
 }

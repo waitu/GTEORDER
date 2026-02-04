@@ -1,65 +1,82 @@
 import { http } from './http';
 
-export type CreditTopupStatus = 'pending' | 'approved' | 'rejected';
-export type CreditTopupMethod = 'pingpong_manual';
+// Note: The legacy PingPong/manual bill-upload top-up flow is deprecated and intentionally removed.
 
-export type UserCreditTopup = {
+export type CreditTopupStatus = 'pending' | 'approved' | 'rejected' | string;
+export type CreditTopupPaymentMethod = 'pingpong_manual' | string;
+
+export type UserCreditHistoryItem = {
   id: string;
-  amount: number;
-  creditAmount?: number;
-  packageKey?: string | null;
-  method: CreditTopupMethod;
+  amountUsd: number | null;
+  paymentMethod: CreditTopupPaymentMethod | null;
   status: CreditTopupStatus;
-  transferNote: string;
-  note?: string | null;
+  pingpongTxId: string | null;
+  credits: number | null;
   createdAt: string;
-  reviewedAt?: string | null;
-  adminNote?: string | null;
-  billImageUrl: string;
+  confirmedAt: string | null;
+  adminNote: string | null;
 };
 
-export const createPingPongTopup = async (params: {
-  amount: number;
-  transferNote: string;
-  note?: string;
-  billImage: File;
-}): Promise<UserCreditTopup> => {
-  const fd = new FormData();
-  fd.append('amount', String(params.amount));
-  fd.append('transferNote', params.transferNote);
-  if (params.note) fd.append('note', params.note);
-  fd.append('bill_image', params.billImage);
-
-  const { data } = await http.post<UserCreditTopup>('/api/credits/topup/pingpong', fd, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  });
-  return data;
+const asNumberOrNull = (value: unknown): number | null => {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim() !== '') {
+    const n = Number(value);
+    if (Number.isFinite(n)) return n;
+  }
+  return null;
 };
 
-export const createPingPongPackageTopup = async (params: {
+const asStringOrNull = (value: unknown): string | null => {
+  if (typeof value === 'string') {
+    const s = value.trim();
+    return s ? s : null;
+  }
+  return null;
+};
+
+const mapHistoryItem = (raw: any): UserCreditHistoryItem => {
+  const createdAt = asStringOrNull(raw?.createdAt ?? raw?.created_at) ?? '';
+  const confirmedAt = asStringOrNull(raw?.confirmedAt ?? raw?.confirmed_at ?? raw?.reviewedAt ?? raw?.reviewed_at);
+  const amountUsd = asNumberOrNull(raw?.amountUsd ?? raw?.amount_usd ?? raw?.amount);
+  const credits = asNumberOrNull(raw?.credits ?? raw?.creditAmount ?? raw?.credit_amount);
+
+  return {
+    id: String(raw?.id ?? ''),
+    amountUsd,
+    paymentMethod: (raw?.paymentMethod ?? raw?.payment_method ?? raw?.method ?? null) as CreditTopupPaymentMethod | null,
+    status: String(raw?.status ?? ''),
+    pingpongTxId: asStringOrNull(raw?.pingpongTxId ?? raw?.pingpong_tx_id),
+    credits,
+    createdAt,
+    confirmedAt,
+    adminNote: asStringOrNull(raw?.adminNote ?? raw?.admin_note),
+  };
+};
+
+export const createPingPongPackageTxIdTopup = async (params: {
   packageKey: string;
-  transferNote: string;
-  note?: string;
-  billImage: File;
-}): Promise<UserCreditTopup> => {
-  const fd = new FormData();
-  fd.append('packageKey', params.packageKey);
-  fd.append('transferNote', params.transferNote);
-  if (params.note) fd.append('note', params.note);
-  fd.append('bill_image', params.billImage);
-
-  const { data } = await http.post<UserCreditTopup>('/api/credits/topup/pingpong/package', fd, {
-    headers: { 'Content-Type': 'multipart/form-data' },
+  pingpongTxId: string;
+}): Promise<UserCreditHistoryItem> => {
+  const { data } = await http.post<any>('/api/credits/topup/pingpong/package/txid', {
+    packageKey: params.packageKey,
+    pingpongTxId: params.pingpongTxId,
   });
-  return data;
+  return mapHistoryItem(data);
 };
 
-export const fetchMyTopups = async (): Promise<UserCreditTopup[]> => {
-  const { data } = await http.get<UserCreditTopup[]>('/api/credits/topups');
-  return data ?? [];
+export const createPingPongTxIdTopup = async (params: {
+  amountUsd: number;
+  pingpongTxId: string;
+}): Promise<UserCreditHistoryItem> => {
+  const { data } = await http.post<any>('/api/credits/topup/pingpong/txid', {
+    amountUsd: params.amountUsd,
+    pingpongTxId: params.pingpongTxId,
+  });
+  return mapHistoryItem(data);
 };
 
-export const fetchTopupBillBlob = async (billImageUrl: string): Promise<Blob> => {
-  const { data } = await http.get(billImageUrl, { responseType: 'blob' });
-  return data as Blob;
+export const fetchMyCreditHistory = async (): Promise<UserCreditHistoryItem[]> => {
+  const { data } = await http.get<any[]>('/api/credits/topups');
+  const arr = Array.isArray(data) ? data : [];
+  return arr.map(mapHistoryItem);
 };

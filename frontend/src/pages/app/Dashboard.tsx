@@ -45,7 +45,7 @@ export const DashboardPage = () => {
               onClick={() => navigate('/balance')}
             >
               <p className="text-sm font-semibold text-slate-600">Credit Balance</p>
-              <p className="mt-2 text-2xl font-bold text-ink">{summary?.balance != null ? `$${summary.balance.toFixed(2)}` : '—'}</p>
+              <p className="mt-2 text-2xl font-bold text-ink">{summary?.balance != null ? `${Number(summary.balance).toLocaleString(undefined, { maximumFractionDigits: 2 })} cr` : '—'}</p>
             </button>
           </>
         )}
@@ -67,7 +67,7 @@ export const DashboardPage = () => {
               },
               { key: 'ref', header: 'Reference' },
               { key: 'status', header: 'Status', render: (row: any) => row.status ?? '—' },
-              { key: 'amount', header: 'Amount', render: (row: any) => (row.amount != null ? `$${row.amount.toFixed(2)}` : '—') },
+              { key: 'amount', header: 'Credits', render: (row: any) => (row.amount != null ? `${Number(row.amount).toLocaleString(undefined, { maximumFractionDigits: 2 })} cr` : '—') },
               { key: 'updatedAt', header: 'Updated', render: (row: any) => (row.updatedAt ? new Date(row.updatedAt).toLocaleString() : '—') },
             ]}
             data={(activity ?? []).slice(0, 10)}

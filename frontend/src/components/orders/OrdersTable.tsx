@@ -44,12 +44,6 @@ const paymentStatusClasses: Record<PaymentStatus, string> = {
   paid: 'bg-emerald-100 text-emerald-800',
 };
 
-const formatCurrency = new Intl.NumberFormat('en-US', {
-  style: 'currency',
-  currency: 'USD',
-  maximumFractionDigits: 2,
-});
-
 export const orderTypeBadge = (orderType: OrderType, extraTitle?: string) => (
   <span title={extraTitle} className={clsx('inline-flex h-6 items-center rounded-full px-2 text-[11px] font-semibold capitalize', typeClasses[orderType])}>
     {typeLabels[orderType]}
@@ -223,7 +217,7 @@ export const buildDefaultOrderColumns = <T extends Order = Order>(options?: {
     {
       key: 'totalCost',
       header: 'Total Cost',
-      render: (order) => <span className="text-sm font-semibold text-ink">{formatCurrency.format(order.totalCost ?? 0)}</span>,
+      render: (order) => <span className="text-sm font-semibold text-ink">{order.totalCost != null ? `${Number(order.totalCost).toLocaleString(undefined, { maximumFractionDigits: 2 })} cr` : '—'}</span>,
     },
     {
       key: 'orderStatus',

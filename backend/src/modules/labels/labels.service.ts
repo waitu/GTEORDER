@@ -123,6 +123,7 @@ export class LabelsService {
     const metas = this.buildMetaMap(metaJson);
     const results = { total: files.length, accepted: 0, rejected: [] as { index: number; reason: string }[], labelIds: [] as string[] };
 
+    let exhausted = false;
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
       const meta = metas[i] ?? {};
@@ -179,6 +180,16 @@ export class LabelsService {
 
       // create an order for this label so UI can show it immediately
       const order = await this.ordersService.createOrderFromLabel(saved as any);
+
+      // Successful imports should auto-deduct when possible; otherwise keep order unpaid.
+      if (!exhausted) {
+        try {
+          const res = await this.ordersService.autoPayOrderIfPossible(userId, order.id);
+          if (!res.paid) exhausted = true;
+        } catch {
+          // Do not fail import due to payment errors.
+        }
+      }
 
       await this.queue.enqueue({
         kind: 'label',
@@ -288,9 +299,12 @@ export class LabelsService {
     if (!preview) throw new BadRequestException('Preview not found or expired');
 
     const labelIds: string[] = [];
+    const paidOrderIds: string[] = [];
+    const unpaidOrderIds: string[] = [];
     let created = 0;
     let failed = 0;
 
+    let exhausted = false;
     for (const row of preview.rows) {
       if (row.status === 'invalid') {
         failed += 1;
@@ -320,6 +334,25 @@ export class LabelsService {
       // create an order for this label so the admin UI can see it immediately
       const order = await this.ordersService.createOrderFromLabel(saved as any);
 
+      // Successful imports should auto-deduct when possible; otherwise keep order unpaid.
+      if (!exhausted) {
+        try {
+          const res = await this.ordersService.autoPayOrderIfPossible(userId, order.id);
+          if (res.paid) {
+            paidOrderIds.push(order.id);
+          } else {
+            unpaidOrderIds.push(order.id);
+            exhausted = true;
+          }
+        } catch {
+          unpaidOrderIds.push(order.id);
+          exhausted = true;
+          // Do not fail import due to payment errors.
+        }
+      } else {
+        unpaidOrderIds.push(order.id);
+      }
+
       await this.queue.enqueue({
         kind: 'label',
         jobId: randomUUID(),
@@ -337,7 +370,7 @@ export class LabelsService {
 
     await this.previewService.delete(previewId);
 
-    return { created, failed, labelIds };
+    return { created, failed, labelIds, paidOrderIds, unpaidOrderIds };
   }
 
   async adminList(dto: AdminListLabelsDto) {

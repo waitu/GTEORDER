@@ -12,14 +12,6 @@ import { AdminAudit } from '../admin/admin-audit.entity.js';
 import { User } from '../users/user.entity.js';
 import { PricingService } from '../pricing/pricing.service.js';
 import { CreditTopup, CreditTopupPaymentMethod, CreditTopupStatus } from './credit-topup.entity.js';
-import { TopupBillStorageService } from './topup-bill-storage.service.js';
-
-export type UploadedBillImage = {
-  buffer: Buffer;
-  mimetype: string;
-  originalname: string;
-  size: number;
-};
 
 const TOPUP_REVIEW_TTL_MS = 24 * 60 * 60 * 1000;
 
@@ -29,59 +21,45 @@ export class CreditTopupsService {
     @InjectRepository(CreditTopup) private readonly topupsRepo: Repository<CreditTopup>,
     private readonly dataSource: DataSource,
     private readonly balanceService: BalanceService,
-    private readonly storage: TopupBillStorageService,
     private readonly pricing: PricingService,
   ) {}
 
-  async createPingPongManualTopup(params: {
+  private normalizePingPongTxId(value: string) {
+    const normalized = String(value ?? '').trim();
+    if (!normalized) {
+      throw new BadRequestException('pingpong_tx_id is required');
+    }
+    if (normalized.length > 128) {
+      throw new BadRequestException('pingpong_tx_id is too long');
+    }
+    return normalized;
+  }
+
+  async createPingPongTxIdTopup(params: {
     userId: string;
-    amount: number;
-    transferNote: string;
+    amountUsd: number;
+    pingpongTxId: string;
     note?: string | null;
-    billImage: UploadedBillImage;
   }) {
-    const { userId, amount, transferNote, note, billImage } = params;
+    const { userId, amountUsd, pingpongTxId, note } = params;
 
-    if (!Number.isFinite(amount) || amount <= 0) {
-      throw new BadRequestException('Invalid amount');
+    if (!Number.isFinite(amountUsd) || amountUsd <= 0) {
+      throw new BadRequestException('Invalid amount_usd');
     }
 
-    const normalizedTransferNote = transferNote.trim();
-    if (!normalizedTransferNote) {
-      throw new BadRequestException('transfer_note is required');
-    }
-
-    const expectedPrefix = `TOPUP_${userId}`;
-    if (!normalizedTransferNote.startsWith(expectedPrefix)) {
-      throw new BadRequestException(`Transfer note must start with ${expectedPrefix}`);
-    }
-
-    if (!billImage) {
-      throw new BadRequestException('bill_image is required');
-    }
-
-    const allowedMime = ['image/png', 'image/jpeg'];
-    if (!allowedMime.includes(billImage.mimetype)) {
-      throw new BadRequestException('Bill image must be a PNG or JPG');
-    }
-
-    if (billImage.size > 5 * 1024 * 1024) {
-      throw new BadRequestException('Bill image must be <= 5MB');
-    }
-
-    const topupId = randomUUID();
-    const billPath = await this.storage.saveBillImage({ userId, topupId, file: billImage });
+    const normalizedTxId = this.normalizePingPongTxId(pingpongTxId);
+    const transferNote = `PP_${userId}_${randomUUID().slice(0, 8).toUpperCase()}`;
 
     const entity = this.topupsRepo.create({
-      id: topupId,
       user: { id: userId } as any,
-      amount: Number(amount.toFixed(2)),
-      creditAmount: Number(amount.toFixed(2)),
+      amount: Number(Number(amountUsd).toFixed(2)),
+      creditAmount: Number(Number(amountUsd).toFixed(2)),
       packageKey: null,
       paymentMethod: CreditTopupPaymentMethod.PINGPONG_MANUAL,
-      transferNote: normalizedTransferNote,
+      transferNote,
+      pingpongTxId: normalizedTxId,
       note: note?.trim() ? note.trim() : null,
-      billImageUrl: billPath,
+      billImageUrl: null,
       status: CreditTopupStatus.PENDING,
       admin: null,
       adminNote: null,
@@ -92,48 +70,27 @@ export class CreditTopupsService {
       const saved = await this.topupsRepo.save(entity);
       return this.mapUserTopup(saved);
     } catch (err: any) {
-      // Postgres unique violation
       if (err?.code === '23505') {
-        throw new BadRequestException('transfer_note already exists');
+        // Could be transfer_note or pingpong_tx_id uniqueness
+        throw new BadRequestException('Transaction ID already exists');
       }
       throw err;
     }
   }
 
-  async createPingPongPackageTopup(params: {
+  async createPingPongPackageTxIdTopup(params: {
     userId: string;
     packageKey: string;
-    transferNote: string;
+    pingpongTxId: string;
     note?: string | null;
-    billImage: UploadedBillImage;
   }) {
-    const { userId, packageKey, transferNote, note, billImage } = params;
+    const { userId, packageKey, pingpongTxId, note } = params;
 
-    const normalizedTransferNote = transferNote.trim();
-    if (!normalizedTransferNote) {
-      throw new BadRequestException('transfer_note is required');
-    }
-
-    const expectedPrefix = `TOPUP_${userId}`;
-    if (!normalizedTransferNote.startsWith(expectedPrefix)) {
-      throw new BadRequestException(`Transfer note must start with ${expectedPrefix}`);
-    }
-
-    if (!billImage) {
-      throw new BadRequestException('bill_image is required');
-    }
-
-    const allowedMime = ['image/png', 'image/jpeg'];
-    if (!allowedMime.includes(billImage.mimetype)) {
-      throw new BadRequestException('Bill image must be a PNG or JPG');
-    }
-
-    if (billImage.size > 5 * 1024 * 1024) {
-      throw new BadRequestException('Bill image must be <= 5MB');
-    }
+    const normalizedTxId = this.normalizePingPongTxId(pingpongTxId);
 
     const { topupPackages } = await this.pricing.getAll();
-    const pkg = topupPackages[String(packageKey || '').trim().toLowerCase()];
+    const normalizedPackageKey = String(packageKey || '').trim().toLowerCase();
+    const pkg = topupPackages[normalizedPackageKey];
     if (!pkg) {
       throw new BadRequestException('Invalid package_key');
     }
@@ -145,21 +102,17 @@ export class CreditTopupsService {
       throw new BadRequestException('Invalid package pricing (credits)');
     }
 
-    const topupId = randomUUID();
-    const billPath = await this.storage.saveBillImage({ userId, topupId, file: billImage });
-
+    const transferNote = `PP_${userId}_${randomUUID().slice(0, 8).toUpperCase()}`;
     const entity = this.topupsRepo.create({
-      id: topupId,
       user: { id: userId } as any,
-      // Amount paid (money)
       amount: Number(Number(pkg.price).toFixed(2)),
-      // Credits granted (can be larger than amount due to discount)
       creditAmount: Number(Number(pkg.credits).toFixed(2)),
-      packageKey: String(packageKey || '').trim().toLowerCase(),
+      packageKey: normalizedPackageKey,
       paymentMethod: CreditTopupPaymentMethod.PINGPONG_MANUAL,
-      transferNote: normalizedTransferNote,
+      transferNote,
+      pingpongTxId: normalizedTxId,
       note: note?.trim() ? note.trim() : null,
-      billImageUrl: billPath,
+      billImageUrl: null,
       status: CreditTopupStatus.PENDING,
       admin: null,
       adminNote: null,
@@ -171,7 +124,7 @@ export class CreditTopupsService {
       return this.mapUserTopup(saved);
     } catch (err: any) {
       if (err?.code === '23505') {
-        throw new BadRequestException('transfer_note already exists');
+        throw new BadRequestException('Transaction ID already exists');
       }
       throw err;
     }
@@ -186,33 +139,77 @@ export class CreditTopupsService {
   }
 
   async listAdminTopups(status?: CreditTopupStatus) {
+    return this.listAdminTopupsPaged({ status });
+  }
+
+  async listAdminTopupsPaged(params: { status?: CreditTopupStatus; q?: string; page?: number; limit?: number }) {
+    const status = params.status;
+    const page = Math.max(1, Number(params.page ?? 1) || 1);
+    const limit = Math.min(200, Math.max(1, Number(params.limit ?? 50) || 50));
+    const q = (params.q ?? '').trim();
+
     const qb = this.topupsRepo
       .createQueryBuilder('t')
       .leftJoinAndSelect('t.user', 'user')
       .leftJoinAndSelect('t.admin', 'admin')
-      .orderBy('t.created_at', 'DESC');
+      .orderBy('t.createdAt', 'DESC')
+      .skip((page - 1) * limit)
+      .take(limit);
 
     if (status) {
       qb.andWhere('t.status = :status', { status });
     }
 
-    const items = await qb.getMany();
-    return items.map((t) => ({
+    if (q) {
+      qb.andWhere(
+        [
+          'LOWER(user.email) LIKE :q',
+          'CAST(t.user_id AS text) LIKE :q',
+          'CAST(t.id AS text) LIKE :q',
+          'LOWER(COALESCE(t.pingpong_tx_id, \'\')) LIKE :q',
+          'LOWER(COALESCE(t.transfer_note, \'\')) LIKE :q',
+        ].join(' OR '),
+        { q: `%${q.toLowerCase()}%` },
+      );
+    }
+
+    const [items, total] = await qb.getManyAndCount();
+
+    const data = items.map((t) => ({
       id: t.id,
       user: { id: t.user?.id, email: (t.user as any)?.email },
       amount: Number(t.amount),
+      amountUsd: Number(t.amount),
+      amount_usd: Number(t.amount),
       creditAmount: Number((t as any).creditAmount ?? t.amount),
+      credits: Number((t as any).creditAmount ?? t.amount),
       packageKey: (t as any).packageKey ?? null,
       paymentMethod: t.paymentMethod,
+      payment_method: t.paymentMethod,
       transferNote: t.transferNote,
+      pingpongTxId: (t as any).pingpongTxId ?? null,
+      pingpong_tx_id: (t as any).pingpongTxId ?? null,
       note: t.note ?? null,
       status: t.status,
       adminId: t.admin?.id ?? null,
       adminNote: t.adminNote ?? null,
+      admin_note: t.adminNote ?? null,
       createdAt: t.createdAt,
+      created_at: t.createdAt,
       reviewedAt: t.reviewedAt ?? null,
-      billImageUrl: this.billEndpointUrl(t.id),
+      confirmedAt: t.reviewedAt ?? null,
+      confirmed_at: t.reviewedAt ?? null,
+      billImageUrl: t.billImageUrl ? this.billEndpointUrl(t.id) : null,
     }));
+
+    return {
+      data,
+      meta: {
+        page,
+        limit,
+        total,
+      },
+    };
   }
 
   async getTopupForBillAccess(params: { requesterId: string; requesterRole?: string; topupId: string }) {
@@ -249,7 +246,7 @@ export class CreditTopupsService {
 
       const createdAtMs = topup.createdAt?.getTime?.() ?? new Date(topup.createdAt as any).getTime();
       if (Date.now() - createdAtMs > TOPUP_REVIEW_TTL_MS) {
-        throw new BadRequestException('Bill is expired (24h). Please ask user to re-submit.');
+        throw new BadRequestException('Top-up request is expired (24h). Please ask user to re-submit.');
       }
 
       topup.status = CreditTopupStatus.APPROVED;
@@ -345,19 +342,32 @@ export class CreditTopupsService {
   }
 
   private mapUserTopup(t: CreditTopup) {
+    const amountUsd = Number(t.amount);
+    const credits = Number((t as any).creditAmount ?? t.amount);
     return {
       id: t.id,
       amount: Number(t.amount),
+      amountUsd,
+      amount_usd: amountUsd,
       creditAmount: Number((t as any).creditAmount ?? t.amount),
       packageKey: (t as any).packageKey ?? null,
       method: t.paymentMethod,
+      paymentMethod: t.paymentMethod,
+      payment_method: t.paymentMethod,
       status: t.status,
       transferNote: t.transferNote,
+      pingpongTxId: (t as any).pingpongTxId ?? null,
+      pingpong_tx_id: (t as any).pingpongTxId ?? null,
       note: t.note ?? null,
       createdAt: t.createdAt,
+      created_at: t.createdAt,
       reviewedAt: t.reviewedAt ?? null,
+      confirmedAt: t.reviewedAt ?? null,
+      confirmed_at: t.reviewedAt ?? null,
       adminNote: t.adminNote ?? null,
-      billImageUrl: this.billEndpointUrl(t.id),
+      admin_note: t.adminNote ?? null,
+      credits,
+      billImageUrl: t.billImageUrl ? this.billEndpointUrl(t.id) : null,
     };
   }
 }

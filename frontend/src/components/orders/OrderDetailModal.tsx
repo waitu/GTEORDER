@@ -89,8 +89,8 @@ export const OrderDetailModal = ({ open, order, onClose, isLoading }: OrderDetai
     }
   };
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-      <div className="w-full max-w-3xl rounded-2xl bg-white p-6 shadow-2xl">
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 px-4 py-6">
+      <div className="w-full max-w-5xl max-h-[calc(100vh-3rem)] overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl">
         <div className="flex items-center justify-between gap-4">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
@@ -114,7 +114,7 @@ export const OrderDetailModal = ({ open, order, onClose, isLoading }: OrderDetai
           {!isDesign && detailRow('Tracking code', order?.trackingCode)}
           {detailRow('Order status', order?.orderStatus)}
           {detailRow('Payment status', order?.paymentStatus)}
-          {detailRow('Total cost', order ? `$${order.totalCost.toFixed(2)}` : undefined)}
+           {detailRow('Total cost', order ? `${Number(order.totalCost).toLocaleString(undefined, { maximumFractionDigits: 2 })} cr` : undefined)}
           {detailRow('Created at', order ? new Date(order.createdAt).toLocaleString() : undefined)}
           {detailRow('Updated at', order ? new Date(order.updatedAt).toLocaleString() : undefined)}
           {detailRow('User email', order?.user?.email ?? undefined)}

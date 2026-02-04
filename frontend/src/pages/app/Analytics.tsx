@@ -3,8 +3,6 @@ import { useQuery } from '@tanstack/react-query';
 import { DashboardLayout } from '../../components/DashboardLayout';
 import { fetchActivity, fetchSummary } from '../../api/dashboard';
 
-const formatCurrency = (n: number) => n.toLocaleString(undefined, { style: 'currency', currency: 'USD' });
-
 const sparklinePath = (values: number[], width = 280, height = 80) => {
   if (!values.length) return '';
   const max = Math.max(...values);
@@ -77,7 +75,7 @@ export const AnalyticsPage = () => {
           <>
             <MetricCard label="In-progress trackings" value={(summary?.activeTrackings ?? 0).toLocaleString()} />
             <MetricCard label="In-progress empty orders" value={(summary?.emptyOrders ?? 0).toLocaleString()} />
-            <MetricCard label="Credit balance" value={summary?.balance != null ? formatCurrency(summary.balance) : '—'} />
+            <MetricCard label="Credit balance" value={summary?.balance != null ? `${Number(summary?.balance ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })} cr` : '—'} />
           </>
         )}
       </div>

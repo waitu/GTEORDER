@@ -12,11 +12,18 @@ export class AdminCreditTopupsController {
   constructor(private readonly topups: CreditTopupsService) {}
 
   @Get('topups')
-  async listTopups(@Query('status') status?: string) {
+  async listTopups(
+    @Query('status') status?: string,
+    @Query('q') q?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
     const normalized = (status || '').trim().toLowerCase();
     const allowed = Object.values(CreditTopupStatus);
     const parsed = allowed.includes(normalized as any) ? (normalized as CreditTopupStatus) : undefined;
-    return this.topups.listAdminTopups(parsed);
+    const pageNum = Math.max(1, Number(page ?? 1) || 1);
+    const limitNum = Math.min(200, Math.max(1, Number(limit ?? 50) || 50));
+    return this.topups.listAdminTopupsPaged({ status: parsed, q, page: pageNum, limit: limitNum });
   }
 
   @Post('topups/:id/approve')

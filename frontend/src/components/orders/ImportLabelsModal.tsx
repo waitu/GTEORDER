@@ -1,10 +1,9 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
 import { useQueryClient } from '@tanstack/react-query';
-import { useQuery } from '@tanstack/react-query';
-import { fetchPricing } from '../../api/pricing';
 import { getServiceCostByKey } from '../../lib/pricing';
 import { http } from '../../api/http';
+import { AlertModal } from '../AlertModal';
 
 export type ImportRow = {
   id: string;
@@ -115,6 +114,7 @@ export const ImportLabelsModal = ({ open, onClose, onSubmit, isSubmitting, defau
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [serverResult, setServerResult] = useState<any>(null);
+  const [resultOpen, setResultOpen] = useState(false);
   const excelInputRef = useRef<HTMLInputElement | null>(null);
   const queryClient = useQueryClient();
 
@@ -136,18 +136,6 @@ export const ImportLabelsModal = ({ open, onClose, onSubmit, isSubmitting, defau
     const cost = getServiceCostByKey(key);
     return sum + (cost ?? 0);
   }, 0);
-
-  // fetch pricing to estimate USD value per credit (use cheapest package per-credit price)
-  const { data: pricingData } = useQuery({ queryKey: ['pricing'], queryFn: fetchPricing });
-  const perCreditUsd = useMemo(() => {
-    const packages = pricingData?.topupPackages ?? {};
-    const vals = Object.values(packages)
-      .filter((p) => p.credits > 0)
-      .map((p) => (p.price / p.credits));
-    if (vals.length === 0) return null;
-    return Math.min(...vals);
-  }, [pricingData]);
-  const estimatedUsd = perCreditUsd != null ? estimatedCredits * perCreditUsd : null;
 
   const clearAll = () => {
     setRows([]);
@@ -206,9 +194,8 @@ export const ImportLabelsModal = ({ open, onClose, onSubmit, isSubmitting, defau
       // Invalidate orders queries so Orders page refreshes (non-exact to include filtered keys)
       void queryClient.invalidateQueries({ queryKey: ['orders'], exact: false });
       onSubmit?.(rows);
-      // reset modal state and close
-      clearAll();
-      onClose();
+      // show explicit result modal instead of silently closing
+      setResultOpen(true);
     } catch (err: any) {
       const msg = err?.message || 'Upload failed';
       setError(msg);
@@ -228,6 +215,49 @@ export const ImportLabelsModal = ({ open, onClose, onSubmit, isSubmitting, defau
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 px-4 py-8">
+      <AlertModal
+        open={resultOpen}
+        title="Import completed"
+        onClose={() => {
+          setResultOpen(false);
+          clearAll();
+          onClose();
+        }}
+        description={
+          serverResult ? (
+            <div>
+              <div>
+                Imported: <span className="font-semibold">{serverResult.created ?? 0}</span>
+              </div>
+              <div className="mt-1">
+                Failed: <span className="font-semibold">{serverResult.failed ?? 0}</span>
+              </div>
+              {(serverResult.paidOrderIds || serverResult.unpaidOrderIds) && (
+                <div className="mt-3">
+                  <div>
+                    Paid: <span className="font-semibold">{(serverResult.paidOrderIds ?? []).length}</span>
+                  </div>
+                  <div className="mt-1">
+                    Unpaid: <span className="font-semibold">{(serverResult.unpaidOrderIds ?? []).length}</span>
+                    {(serverResult.unpaidOrderIds ?? []).length > 0 ? ' (insufficient credits)' : ''}
+                  </div>
+                  {(serverResult.unpaidOrderIds ?? []).length > 0 && (
+                    <div className="mt-2">
+                      <div className="font-semibold">Unpaid order IDs (first 10)</div>
+                      <div className="mt-1 break-all rounded-lg border border-slate-200 bg-slate-50 p-2 text-xs text-slate-700">
+                        {(serverResult.unpaidOrderIds ?? []).slice(0, 10).join(', ')}
+                        {(serverResult.unpaidOrderIds ?? []).length > 10 ? '…' : ''}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          ) : (
+            '—'
+          )
+        }
+      />
       <div className="w-full max-w-6xl rounded-2xl bg-white p-6 shadow-2xl">
           <div className="flex items-start justify-between gap-4">
           <div>
@@ -401,9 +431,6 @@ export const ImportLabelsModal = ({ open, onClose, onSubmit, isSubmitting, defau
         </div>
         <div className="mt-2 text-xs text-slate-500">Credits will be deducted when admin starts processing.</div>
         <div className="mt-2 text-sm text-slate-700">Estimated credits: <span className="font-semibold">{estimatedCredits.toFixed(2)}</span></div>
-        {estimatedUsd != null && (
-          <div className="mt-1 text-sm text-slate-600">(~{estimatedUsd.toLocaleString(undefined, { style: 'currency', currency: 'USD' })})</div>
-        )}
         {/* Show concise server result summary, avoid noisy raw logs */}
         {/* {serverResult && (
           <div className="mt-4 rounded border border-slate-200 bg-slate-50 p-3 text-sm">
@@ -426,9 +453,6 @@ export const ImportLabelsModal = ({ open, onClose, onSubmit, isSubmitting, defau
           <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
             <h3 className="text-lg font-semibold">Confirm import</h3>
             <p className="mt-2 text-sm text-slate-700">You are about to import <span className="font-semibold">{rows.length}</span> rows ({validCount} valid). This will deduct <span className="font-semibold">{estimatedCredits.toFixed(2)}</span> credits</p>
-            {estimatedUsd != null && (
-              <p className="mt-1 text-sm text-slate-600">Estimated cost: <span className="font-semibold">{estimatedUsd.toLocaleString(undefined, { style: 'currency', currency: 'USD' })}</span></p>
-            )}
             <div className="mt-4 flex justify-end gap-3">
               <button className="rounded-lg border px-4 py-2" onClick={() => setConfirmOpen(false)}>Cancel</button>
               <button className="rounded-lg bg-ink px-4 py-2 text-white" onClick={async () => { setConfirmOpen(false); await handleSubmit(); }}>

@@ -109,3 +109,13 @@ export const bulkImportTracking = async (trackingCodes: string[]): Promise<BulkI
     const { data } = await http.post<BulkImportTrackingResult>('/orders/import/tracking-bulk', { trackingCodes });
     return data;
 };
+
+export type PayOrdersResponse = {
+    paidOrderIds: string[];
+    unpaidOrderIds: string[];
+};
+
+export const payOrders = async (orderIds: string[]): Promise<PayOrdersResponse> => {
+    const { data } = await http.post<PayOrdersResponse>('/orders/pay', { orderIds });
+    return data;
+};

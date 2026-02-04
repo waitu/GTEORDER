@@ -63,16 +63,22 @@ export type AdminCreditTopup = {
   id: string;
   user: { id: string; email?: string | null };
   amount: number;
+  amountUsd?: number;
+  creditAmount?: number;
+  credits?: number;
+  packageKey?: string | null;
   paymentMethod: CreditTopupMethod;
   transferNote: string;
+  pingpongTxId?: string | null;
   note?: string | null;
   status: CreditTopupStatus;
   adminId?: string | null;
   adminNote?: string | null;
   createdAt: string;
   reviewedAt?: string | null;
-  billImageUrl: string;
 };
+
+export type Paginated<T> = { data: T[]; meta: { page: number; limit: number; total: number } };
 
 export type AdminOrder = Order;
 
@@ -137,10 +143,25 @@ export const fetchUserCreditHistory = async (id: string): Promise<BalanceTransac
   return data ?? [];
 };
 
-export const fetchAdminCreditTopups = async (status?: CreditTopupStatus): Promise<AdminCreditTopup[]> => {
-  const query = status ? `?status=${encodeURIComponent(status)}` : '';
-  const { data } = await http.get<AdminCreditTopup[]>(`/api/admin/credits/topups${query}`);
-  return data ?? [];
+export const fetchAdminCreditTopups = async (params: {
+  status?: CreditTopupStatus;
+  q?: string;
+  page?: number;
+  limit?: number;
+} = {}): Promise<Paginated<AdminCreditTopup>> => {
+  const qs = new URLSearchParams();
+  if (params.status) qs.set('status', params.status);
+  if (params.q?.trim()) qs.set('q', params.q.trim());
+  if (params.page) qs.set('page', String(params.page));
+  if (params.limit) qs.set('limit', String(params.limit));
+  const query = qs.toString() ? `?${qs.toString()}` : '';
+  const { data } = await http.get<Paginated<AdminCreditTopup>>(`/api/admin/credits/topups${query}`);
+  return (
+    data ?? {
+      data: [],
+      meta: { page: params.page ?? 1, limit: params.limit ?? 50, total: 0 },
+    }
+  );
 };
 
 export const approveCreditTopup = async (id: string) => {

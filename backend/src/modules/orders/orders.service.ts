@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, SelectQueryBuilder, DataSource } from 'typeorm';
+import { Repository, SelectQueryBuilder, DataSource, DeepPartial } from 'typeorm';
 import { randomUUID } from 'crypto';
 
 import { Order, OrderStatus, OrderType, PaymentStatus } from './order.entity.js';
@@ -142,7 +142,18 @@ export class OrdersService {
     return null;
   }
 
-  async createScanLabelOrder(userId: string, dto: ScanLabelDto) {
+  private resolveServiceKey(order: Pick<Order, 'orderType' | 'designSubtype'>): string {
+    if (order.orderType === OrderType.ACTIVE_TRACKING) return 'scan_label';
+    if (order.orderType === OrderType.EMPTY_PACKAGE) return 'empty_package';
+    if (order.orderType === OrderType.DESIGN) {
+      const key = getServiceKey(order as any);
+      if (!key) throw new BadRequestException('Unable to determine service type for this order');
+      return key;
+    }
+    throw new BadRequestException('Unable to determine service type for this order');
+  }
+
+  async createScanLabelOrder(userId: string, dto: ScanLabelDto, opts?: { skipDebit?: boolean }) {
     const trackingCode = dto.trackingCode?.trim();
     if (!trackingCode) {
       throw new BadRequestException('trackingCode is required');
@@ -153,34 +164,45 @@ export class OrdersService {
       throw new BadRequestException('Unable to detect carrier from input');
     }
 
-    // Wrap order creation + debit in a single transaction to keep balances correct.
+    // Wrap order creation + optional debit in a single transaction to keep balances correct.
+    // If balance is insufficient, create the order as UNPAID and do not enqueue processing.
     const order = await this.dataSource.transaction(async (manager) => {
+      const expectedCost = await this.creditService.getCostForService('scan_label');
       const draft = manager.create(Order, {
         user: { id: userId } as any,
         orderType: OrderType.ACTIVE_TRACKING,
-        orderStatus: OrderStatus.PROCESSING,
-        paymentStatus: PaymentStatus.PAID,
+        orderStatus: OrderStatus.PENDING,
+        paymentStatus: PaymentStatus.UNPAID,
+        totalCost: expectedCost,
         trackingCode,
         labelUrl: null,
         carrier,
       });
       const saved = await manager.save(draft);
 
-      // Use CreditService.consume to debit using canonical pricing_rules
-      await this.creditService.consume(userId, 'scan_label', saved.id, manager as any);
+      if (!opts?.skipDebit) {
+        const debit = await this.creditService.tryConsume(userId, 'scan_label', saved.id, manager as any);
+        if (debit.ok) {
+          saved.paymentStatus = PaymentStatus.PAID;
+          saved.orderStatus = OrderStatus.PROCESSING;
+          await manager.save(saved);
+        }
+      }
       return saved;
     });
 
-    const job: ScanJobPayload = {
-      jobId: randomUUID(),
-      orderId: order.id,
-      userId,
-      carrier,
-      trackingCode,
-      labelUrl: null,
-      attempts: 0,
-    };
-    await this.scanQueue.enqueue(job);
+    if (!opts?.skipDebit && order.paymentStatus === PaymentStatus.PAID) {
+      const job: ScanJobPayload = {
+        jobId: randomUUID(),
+        orderId: order.id,
+        userId,
+        carrier,
+        trackingCode,
+        labelUrl: null,
+        attempts: 0,
+      };
+      await this.scanQueue.enqueue(job);
+    }
 
     return order;
   }
@@ -198,11 +220,13 @@ export class OrdersService {
       throw new BadRequestException('No tracking codes provided');
     }
 
-    const results: { trackingCode: string; ok: boolean; orderId?: string; error?: string }[] = [];
+    const results: { trackingCode: string; ok: boolean; orderId?: string; paymentStatus?: PaymentStatus; error?: string }[] = [];
+    let exhausted = false;
     for (const trackingCode of normalized) {
       try {
-        const order = await this.createScanLabelOrder(userId, { trackingCode } as ScanLabelDto);
-        results.push({ trackingCode, ok: true, orderId: order.id });
+        const order = await this.createScanLabelOrder(userId, { trackingCode } as ScanLabelDto, { skipDebit: exhausted });
+        results.push({ trackingCode, ok: true, orderId: order.id, paymentStatus: order.paymentStatus });
+        if (!exhausted && order.paymentStatus === PaymentStatus.UNPAID) exhausted = true;
       } catch (err: any) {
         const msg = err?.response?.message ?? err?.message ?? 'Failed';
         results.push({ trackingCode, ok: false, error: Array.isArray(msg) ? msg.join(', ') : String(msg) });
@@ -276,20 +300,7 @@ export class OrdersService {
       await this.ensureNoDuplicateTracking(order);
     }
 
-    // Determine service cost
-    // Determine service key for pricing
-    let serviceKey: string | null = null;
-    if (order.orderType === OrderType.ACTIVE_TRACKING) {
-      serviceKey = 'scan_label';
-    } else if (order.orderType === OrderType.EMPTY_PACKAGE) {
-      serviceKey = 'empty_package';
-    } else if (order.orderType === OrderType.DESIGN) {
-      serviceKey = getServiceKey(order);
-    }
-
-    if (!serviceKey) {
-      throw new BadRequestException('Unable to determine service type for this order');
-    }
+    const serviceKey = this.resolveServiceKey(order);
 
     // Perform debit + transition in a single transaction and ensure idempotency
     const updated = await this.dataSource.transaction(async (manager) => {
@@ -301,6 +312,8 @@ export class OrdersService {
       if (![OrderStatus.PENDING, OrderStatus.PROCESSING].includes(txOrder.orderStatus)) {
         throw new BadRequestException('Order is not in a startable state');
       }
+
+      const expectedCost = await this.creditService.getCostForService(serviceKey as string);
 
       // Check if a debit transaction already exists for this order
       const existingTx = await manager
@@ -315,7 +328,14 @@ export class OrdersService {
         if (!uid) throw new NotFoundException('User not found');
         // Use CreditService.consume to debit canonical pricing
         await this.creditService.consume(uid, serviceKey as string, txOrder.id, manager as any);
+        txOrder.paymentStatus = PaymentStatus.PAID;
+      } else {
+        // Keep paymentStatus consistent with ledger.
+        txOrder.paymentStatus = PaymentStatus.PAID;
       }
+
+      // Always persist expected credit cost for display.
+      txOrder.totalCost = expectedCost;
 
       // Update order status to PROCESSING if not already
       txOrder.orderStatus = OrderStatus.PROCESSING;
@@ -326,6 +346,142 @@ export class OrdersService {
     });
 
     return updated;
+  }
+
+  /**
+   * Attempt to auto-pay a specific order (typically right after import).
+   * Does not throw on insufficient balance.
+   */
+  async autoPayOrderIfPossible(userId: string, orderId: string): Promise<{ paid: boolean }> {
+    return this.dataSource.transaction(async (manager) => {
+      const order = await manager
+        .createQueryBuilder(Order, 'o')
+        .where('o.id = :orderId', { orderId })
+        .andWhere('o.user_id = :userId', { userId })
+        .setLock('pessimistic_write')
+        .getOne();
+
+      if (!order) throw new NotFoundException('Order not found');
+      if (order.paymentStatus === PaymentStatus.PAID) return { paid: true };
+
+      // Keep expected credit cost populated even when unpaid.
+      try {
+        const expectedCost = await this.creditService.getCostForService(this.resolveServiceKey(order));
+        order.totalCost = expectedCost;
+        await manager.save(order);
+      } catch {
+        // ignore
+      }
+
+      const existingTx = await manager
+        .createQueryBuilder(BalanceTransaction, 'bt')
+        .where('bt.order_id = :orderId', { orderId: order.id })
+        .andWhere('bt.amount < 0')
+        .getOne();
+      if (existingTx) {
+        order.paymentStatus = PaymentStatus.PAID;
+        await manager.save(order);
+        return { paid: true };
+      }
+
+      const serviceKey = this.resolveServiceKey(order);
+      const debit = await this.creditService.tryConsume(userId, serviceKey, order.id, manager as any);
+      if (!debit.ok) return { paid: false };
+
+      order.paymentStatus = PaymentStatus.PAID;
+      await manager.save(order);
+      return { paid: true };
+    });
+  }
+
+  /**
+   * Pay selected unpaid orders, in the given order.
+   * Stops when the user runs out of balance.
+   */
+  async payOrders(userId: string, orderIds: string[]): Promise<{ paidOrderIds: string[]; unpaidOrderIds: string[] }> {
+    const unique = Array.from(new Set((orderIds ?? []).filter(Boolean)));
+    if (unique.length === 0) {
+      return { paidOrderIds: [], unpaidOrderIds: [] };
+    }
+
+    const toEnqueue: Array<{ orderId: string; carrier: string; trackingCode: string }> = [];
+    const paidOrderIds: string[] = [];
+    const unpaidOrderIds: string[] = [];
+
+    await this.dataSource.transaction(async (manager) => {
+      for (const orderId of unique) {
+        const order = await manager
+          .createQueryBuilder(Order, 'o')
+          .where('o.id = :orderId', { orderId })
+          .andWhere('o.user_id = :userId', { userId })
+          .setLock('pessimistic_write')
+          .getOne();
+
+        if (!order) {
+          continue;
+        }
+
+        // Keep expected credit cost populated for UI.
+        try {
+          const expectedCost = await this.creditService.getCostForService(this.resolveServiceKey(order));
+          order.totalCost = expectedCost;
+          await manager.save(order);
+        } catch {
+          // ignore
+        }
+
+        if (order.paymentStatus === PaymentStatus.PAID) {
+          paidOrderIds.push(order.id);
+          continue;
+        }
+
+        const existingTx = await manager
+          .createQueryBuilder(BalanceTransaction, 'bt')
+          .where('bt.order_id = :orderId', { orderId: order.id })
+          .andWhere('bt.amount < 0')
+          .getOne();
+        if (existingTx) {
+          order.paymentStatus = PaymentStatus.PAID;
+          await manager.save(order);
+          paidOrderIds.push(order.id);
+          continue;
+        }
+
+        const serviceKey = this.resolveServiceKey(order);
+        const debit = await this.creditService.tryConsume(userId, serviceKey, order.id, manager as any);
+        if (!debit.ok) {
+          unpaidOrderIds.push(order.id);
+          // stop processing remaining orders (top-to-bottom)
+          break;
+        }
+
+        order.paymentStatus = PaymentStatus.PAID;
+        // For scan orders, once paid we can begin processing.
+        if (order.orderType === OrderType.ACTIVE_TRACKING && order.trackingCode && order.carrier) {
+          order.orderStatus = OrderStatus.PROCESSING;
+          toEnqueue.push({ orderId: order.id, carrier: order.carrier, trackingCode: order.trackingCode });
+        }
+        await manager.save(order);
+        paidOrderIds.push(order.id);
+      }
+
+      const remaining = unique.filter((id) => !paidOrderIds.includes(id) && !unpaidOrderIds.includes(id));
+      unpaidOrderIds.push(...remaining);
+    });
+
+    for (const j of toEnqueue) {
+      await this.scanQueue.enqueue({
+        jobId: randomUUID(),
+        orderId: j.orderId,
+        userId,
+        carrier: j.carrier,
+        trackingCode: j.trackingCode,
+        labelUrl: null,
+        attempts: 0,
+      });
+    }
+
+    return { paidOrderIds, unpaidOrderIds };
   }
 
   /**
@@ -460,18 +616,29 @@ export class OrdersService {
     if (svc === 'empty' || svc === 'empty_package') orderType = OrderType.EMPTY_PACKAGE;
     if (svc === 'design') orderType = OrderType.DESIGN;
 
-    const draft = this.ordersRepo.create({
+    const draftInput: DeepPartial<Order> = {
       user: { id: label.user.id } as any,
       label: { id: label.id } as any,
       orderType,
       // Imported orders should start in 'pending' so admins pick them up for processing
       orderStatus: OrderStatus.PENDING,
       paymentStatus: PaymentStatus.UNPAID,
+      totalCost: 0,
       trackingCode: (orderType === OrderType.ACTIVE_TRACKING || orderType === OrderType.EMPTY_PACKAGE) ? (label.trackingNumber ?? null) : null,
       carrier: (orderType === OrderType.ACTIVE_TRACKING || orderType === OrderType.EMPTY_PACKAGE) ? (label.carrier ?? null) : null,
       labelUrl: label.labelFileUrl ?? null,
       labelImageUrl: label.labelFileUrl ?? null,
-    } as any);
+    };
+
+    const draft = this.ordersRepo.create(draftInput);
+
+    // Store expected credit cost for display (even before payment).
+    try {
+      const serviceKey = this.resolveServiceKey({ orderType, designSubtype: null } as any);
+      draft.totalCost = await this.creditService.getCostForService(serviceKey);
+    } catch {
+      // ignore unknown service types; keep default.
+    }
 
     const saved = (await this.ordersRepo.save(draft)) as unknown as Order;
     return saved;

@@ -1,9 +1,10 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { DashboardLayout } from '../../components/DashboardLayout';
 import { Badge } from '../../components/Badge';
 import { fetchPricing } from '../../api/pricing';
+import { PingPongTxIdModal } from '../../components/PingPongTxIdModal';
 
 type PackageInfo = { price: number; credits: number; discount: number };
 
@@ -148,6 +149,7 @@ const PricingCard = ({
   baselinePkg,
   badge,
   featured,
+  onBuyCredits,
 }: {
   planKey: string;
   pkg: PackageInfo;
@@ -156,6 +158,7 @@ const PricingCard = ({
   baselinePkg: PackageInfo | null;
   badge?: { text: string; variant: 'info' | 'success' | 'neutral' };
   featured?: boolean;
+  onBuyCredits: (packageKey: string) => void;
 }) => {
   const planPpc = pricePerCredit(pkg.price, pkg.credits);
   const basePpc = baselinePkg ? pricePerCredit(baselinePkg.price, baselinePkg.credits) : null;
@@ -239,8 +242,9 @@ const PricingCard = ({
 
       {/* CTA (unchanged) */}
       <div className="mt-6">
-        <Link
-          to={`/balance?package=${encodeURIComponent(planKey)}`}
+        <button
+          type="button"
+          onClick={() => onBuyCredits(planKey)}
           className={
             featured
               ? 'block w-full rounded-xl bg-sky-600 px-4 py-3 text-center text-sm font-semibold shadow-sm transition hover:bg-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 border border-slate-200'
@@ -248,7 +252,7 @@ const PricingCard = ({
           }
         >
           Buy credits
-        </Link>
+        </button>
       </div>
     </div>
   );
@@ -258,6 +262,8 @@ export const PricingPage = () => {
   const { data, isLoading } = useQuery({ queryKey: ['pricing'], queryFn: fetchPricing });
   const packages = data?.topupPackages ?? {};
   const services = data?.serviceCreditCost ?? {};
+
+  const [purchase, setPurchase] = useState<{ open: boolean; packageKey: string | null }>({ open: false, packageKey: null });
 
   const orderedKeys = useMemo(() => computePlanOrder(packages), [packages]);
   const baselineKey = useMemo(() => (packages['basic'] ? 'basic' : orderedKeys[0] ?? null), [orderedKeys, packages]);
@@ -308,6 +314,7 @@ export const PricingPage = () => {
                     baselinePkg={baselinePkg}
                     badge={badge}
                     featured={featuredKey === k}
+                    onBuyCredits={(packageKey) => setPurchase({ open: true, packageKey })}
                   />
                 );
               })}
@@ -321,6 +328,13 @@ export const PricingPage = () => {
           </div>
         </div>
       </div>
+
+      <PingPongTxIdModal
+        open={purchase.open}
+        packageKey={purchase.packageKey}
+        packageInfo={purchase.packageKey ? (packages[purchase.packageKey] ?? null) : null}
+        onClose={() => setPurchase({ open: false, packageKey: null })}
+      />
     </DashboardLayout>
   );
 };
