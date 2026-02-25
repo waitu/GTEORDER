@@ -79,6 +79,23 @@ services:
       node dist/main.js
       "
 
+  telegram-report:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+      - ./backend/.env.docker
+    environment:
+      NODE_ENV: production
+      DB_SSL: "false"
+      DATABASE_URL: postgres://postgres:postgres@db:5432/gteorder
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["node", "dist/scripts/telegram-pending-report.js"]
+
   web:
     build:
       context: ./frontend
