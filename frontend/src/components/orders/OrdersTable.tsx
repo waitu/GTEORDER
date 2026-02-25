@@ -281,6 +281,11 @@ export function buildDefaultOrderColumns<T extends Order = Order>(options?: {
       header: 'Order Status',
       render: (order) => orderStatusBadge(order.orderStatus),
     },
+    {
+      key: 'paymentStatus',
+      header: 'Payment Status',
+      render: (order) => paymentStatusBadge(order.paymentStatus),
+    },
   );
 
   if (showAssets) {
