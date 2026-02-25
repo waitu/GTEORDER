@@ -35,4 +35,14 @@ export const envValidationSchema = Joi.object({
   SMTP_PASS: Joi.string().required(),
 
   LABEL_DEBIT_ON_IMPORT: Joi.boolean().default(false),
+
+  BYEASTSIDE_API_KEY: Joi.string().optional(),
+  BYEASTSIDE_API_BASE: Joi.string().uri().default('https://byeastside.uk/api/customer/pdfs'),
+  BYEASTSIDE_LABELS_BASE: Joi.string().uri().default('https://api-label-scan.aletech.co/api/customer/pdfs'),
+  BYEASTSIDE_PAGE_SIZE: Joi.number().integer().min(1).max(100).default(10),
+  BYEASTSIDE_SYNC_LIMIT: Joi.number().integer().min(1).max(200).default(10),
+  BYEASTSIDE_SYNC_PAGE: Joi.number().integer().min(1).max(1000).default(1),
+  BYEASTSIDE_CRON: Joi.string().optional(),
+  BYEASTSIDE_RUN_ON_START: Joi.boolean().default(false),
+  BYEASTSIDE_EXIT_AFTER_RUN: Joi.boolean().default(false),
 });

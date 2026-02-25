@@ -13,7 +13,8 @@
     "migration:revert": "npm run build && node ./node_modules/typeorm/cli.js migration:revert -d ./dist/shared/config/typeorm.datasource.js",
     "migration:show": "npm run build && node ./node_modules/typeorm/cli.js migration:show -d ./dist/shared/config/typeorm.datasource.js",
     "truncate:orders": "node --loader ts-node/esm src/scripts/truncate-orders.ts",
-    "telegram:pending": "node --loader ts-node/esm src/scripts/telegram-pending-report.ts"
+    "telegram:pending": "node --loader ts-node/esm src/scripts/telegram-pending-report.ts",
+    "byeastside:sync": "node --loader ts-node/esm src/scripts/byeastside-sync.ts"
   },
   "dependencies": {
     "@nestjs/common": "^10.0.0",

@@ -19,11 +19,13 @@ import { OrdersModule } from '../orders/orders.module.js';
 import { AdminOrdersController } from './admin-orders.controller.js';
 import { AdminAccountsController } from './admin-accounts.controller.js';
 import { AdminLabelsController } from './admin-labels.controller.js';
+import { AdminByeastsideController } from './admin-byeastside.controller.js';
+import { AdminByeastsideService } from './admin-byeastside.service.js';
 
 @Module({
   imports: [TypeOrmModule.forFeature([RegistrationRequest, AdminAudit, User, UserProfile, LoginAudit, RefreshToken, TrustedDevice, BalanceTransaction]), UsersModule, OrdersModule, LabelsModule, JwtModule.register({})],
-  controllers: [AdminController, AdminOrdersController, AdminAccountsController, AdminLabelsController],
-  providers: [AdminService, AdminAuthGuard],
+  controllers: [AdminController, AdminOrdersController, AdminAccountsController, AdminLabelsController, AdminByeastsideController],
+  providers: [AdminService, AdminAuthGuard, AdminByeastsideService],
   exports: [AdminService],
 })
 export class AdminModule {}

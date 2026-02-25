@@ -84,6 +84,23 @@ export type AdminOrder = Order;
 
 export type AdminOrdersResponse = OrdersResponse & { data: AdminOrder[] };
 
+export type ByeastsideSettings = {
+  cron: string;
+  enabled: boolean;
+  limit: number;
+  pageSize: number;
+  page: number;
+};
+
+export type ByeastsideSyncResult = {
+  pdfsProcessed: number;
+  labelsScanned: number;
+  ordersUpdated: number;
+  ordersSkippedUnpaid: number;
+  ordersNotFound: number;
+  statusCounts: Record<string, number>;
+};
+
 export const fetchRegistrationRequests = async (): Promise<RegistrationRequest[]> => {
   const { data } = await http.get<RegistrationRequest[]>('/admin/registration-requests');
   return (data ?? []).map((item) => {
@@ -236,5 +253,20 @@ export const bulkFailOrders = async (ids: string[], adminNote: string, refund = 
 
 export const bulkArchiveOrders = async (ids: string[]) => {
   const { data } = await http.post<AdminOrder[]>(`/admin/orders/bulk/archive`, { ids });
+  return data;
+};
+
+export const fetchByeastsideSettings = async (): Promise<ByeastsideSettings> => {
+  const { data } = await http.get<ByeastsideSettings>('/admin/byeastside/settings');
+  return data;
+};
+
+export const updateByeastsideSettings = async (payload: Partial<ByeastsideSettings>): Promise<ByeastsideSettings> => {
+  const { data } = await http.post<ByeastsideSettings>('/admin/byeastside/settings', payload);
+  return data;
+};
+
+export const runByeastsideSync = async (payload: Partial<ByeastsideSettings>): Promise<ByeastsideSyncResult> => {
+  const { data } = await http.post<ByeastsideSyncResult>('/admin/byeastside/sync', payload);
   return data;
 };

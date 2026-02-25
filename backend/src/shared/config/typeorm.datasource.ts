@@ -12,6 +12,7 @@ import { AdminAudit } from '../../modules/admin/admin-audit.entity.js';
 import { Order } from '../../modules/orders/order.entity.js';
 import { BalanceTransaction } from '../balance/balance-transaction.entity.js';
 import { Label } from '../../modules/labels/label.entity.js';
+import { AppSetting } from './app-setting.entity.js';
 
 const databaseUrl = process.env.DATABASE_URL;
 const ssl = process.env.DB_SSL === 'true';
@@ -22,7 +23,7 @@ export default new DataSource({
   type: 'postgres',
   url: databaseUrl,
   ssl: ssl ? { rejectUnauthorized: false } : undefined,
-  entities: [User, UserProfile, RegistrationRequest, OtpCode, TrustedDevice, RefreshToken, LoginAudit, AdminAudit, Order, Label, BalanceTransaction],
+  entities: [User, UserProfile, RegistrationRequest, OtpCode, TrustedDevice, RefreshToken, LoginAudit, AdminAudit, Order, Label, BalanceTransaction, AppSetting],
   migrations: ['dist/migrations/*.js'],
   synchronize,
 });

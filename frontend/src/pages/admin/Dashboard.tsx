@@ -1,8 +1,17 @@
+import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { AdminLayout } from '../../components/AdminLayout';
 import { Table } from '../../components/Table';
-import { fetchAdminOverview, approveRegistrationRequest, rejectRegistrationRequest, RegistrationRequest, AdminOverview } from '../../api/admin';
+import {
+  fetchAdminOverview,
+  approveRegistrationRequest,
+  rejectRegistrationRequest,
+  RegistrationRequest,
+  AdminOverview,
+  runByeastsideSync,
+  ByeastsideSyncResult,
+} from '../../api/admin';
 
 const formatRelativeTime = (value?: string) => {
   if (!value) return '—';
@@ -34,6 +43,7 @@ export const AdminDashboardPage = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { data, isLoading, isError } = useQuery({ queryKey: ['admin', 'overview'], queryFn: fetchAdminOverview });
+  const [syncResult, setSyncResult] = useState<ByeastsideSyncResult | null>(null);
 
   const counts = data?.counts;
 
@@ -68,6 +78,13 @@ export const AdminDashboardPage = () => {
           recentRequests: current.recentRequests.filter((req) => req.id !== variables.id),
         };
       });
+    },
+  });
+
+  const syncMutation = useMutation({
+    mutationFn: (limit: number) => runByeastsideSync({ limit }),
+    onSuccess: (data) => {
+      setSyncResult(data);
     },
   });
 
@@ -150,6 +167,13 @@ export const AdminDashboardPage = () => {
             >
               View recent login failures
             </button>
+            <button
+              type="button"
+              className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-800 hover:border-slate-300 hover:bg-white"
+              onClick={() => navigate('/admin/byeastside')}
+            >
+              Open tracking sync
+            </button>
           </div>
         </div>
 
@@ -195,6 +219,44 @@ export const AdminDashboardPage = () => {
             />
           )}
         </div>
+      </div>
+
+      <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="mb-3 flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-ink">Byeastside tracking sync</h2>
+            <p className="text-xs text-slate-500">Quick sync for last PDF ids (paid orders only).</p>
+          </div>
+          <button
+            type="button"
+            className="text-sm font-semibold text-sky-700 hover:text-sky-900"
+            onClick={() => navigate('/admin/byeastside')}
+          >
+            Manage settings
+          </button>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {[10, 20, 50].map((limit) => (
+            <button
+              key={limit}
+              type="button"
+              className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+              onClick={() => syncMutation.mutate(limit)}
+              disabled={syncMutation.isPending}
+            >
+              Sync {limit}
+            </button>
+          ))}
+          {syncMutation.isPending && <span className="text-sm text-slate-600">Syncing…</span>}
+        </div>
+        {syncResult && (
+          <div className="mt-3 grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
+            <div><span className="font-semibold text-ink">PDFs:</span> {syncResult.pdfsProcessed}</div>
+            <div><span className="font-semibold text-ink">Labels:</span> {syncResult.labelsScanned}</div>
+            <div><span className="font-semibold text-ink">Updated:</span> {syncResult.ordersUpdated}</div>
+            <div><span className="font-semibold text-ink">Skipped unpaid:</span> {syncResult.ordersSkippedUnpaid}</div>
+          </div>
+        )}
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">

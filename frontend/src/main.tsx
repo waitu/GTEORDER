@@ -27,6 +27,7 @@ import { BalanceAdjustmentsPage } from './pages/admin/BalanceAdjustments';
 import { AdminCreditTopupsPage } from './pages/admin/CreditTopups';
 import { SystemLogsPage } from './pages/admin/SystemLogs';
 import { AdminOrdersPage } from './pages/admin/Orders';
+import { AdminByeastsidePage } from './pages/admin/Byeastside';
 import { AuthProvider } from './context/AuthProvider';
 import { ProtectedRoute, AdminRoute, GuestRoute, OtpRoute } from './components/ProtectedRoute';
 
@@ -60,6 +61,7 @@ const router = createBrowserRouter([
       { path: '/me/devices', element: <ProtectedRoute><MeDevicesPage /></ProtectedRoute> },
       { path: '/admin', element: <AdminRoute><AdminDashboardPage /></AdminRoute> },
       { path: '/admin/orders', element: <AdminRoute><AdminOrdersPage /></AdminRoute> },
+      { path: '/admin/byeastside', element: <AdminRoute><AdminByeastsidePage /></AdminRoute> },
       { path: '/admin/users', element: <AdminRoute><AdminUsersPage /></AdminRoute> },
       { path: '/admin/requests', element: <AdminRoute><AdminRequestsPage /></AdminRoute> },
       { path: '/admin/audits', element: <AdminRoute><AdminAuditsPage /></AdminRoute> },

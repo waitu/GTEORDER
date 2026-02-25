@@ -36,6 +36,7 @@ const adminNavItems = [
   { label: 'Dashboard', to: '/admin' },
   // { label: 'Design Orders', to: '/admin/orders?view=design' },
   { label: 'Orders', to: '/admin/orders' },
+  { label: 'Tracking Sync', to: '/admin/byeastside' },
   { label: 'Top-ups', to: '/admin/credit-topups' },
   { label: 'Requests', to: '/admin/requests' },
   { label: 'Audits', to: '/admin/audits' },
