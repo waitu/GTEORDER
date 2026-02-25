@@ -7,6 +7,7 @@ import { AccessAuthGuard } from '../auth/access-auth.guard.js';
 import { ScanLabelDto } from './dto/scan-label.dto.js';
 import { BulkTrackingImportDto } from './dto/bulk-tracking-import.dto.js';
 import { PayOrdersDto } from './dto/pay-orders.dto.js';
+import { OrderType } from './order.entity.js';
 
 @Controller('orders')
 @UseGuards(AccessAuthGuard)
@@ -17,6 +18,20 @@ export class OrdersController {
   async listOrders(@Req() req: Request & { user?: any }, @Query() query: ListOrdersDto) {
     const userId = req.user?.sub;
     return this.ordersService.listOrders({ ...query, userId });
+  }
+
+  @Get('summary')
+  async summary(@Req() req: Request & { user?: any }, @Query('view') view?: string) {
+    const userId = req.user?.sub;
+    const filters: ListOrdersDto = { userId };
+
+    if (view === 'design') {
+      filters.orderType = OrderType.DESIGN;
+    } else {
+      filters.excludeDesign = true;
+    }
+
+    return this.ordersService.summarizeOrders(filters);
   }
 
   @Get(':id')

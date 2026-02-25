@@ -1,9 +1,13 @@
 import { Transform } from 'class-transformer';
-import { IsEnum, IsInt, IsOptional, IsString, IsUUID, Max, Min } from 'class-validator';
+import { IsBoolean, IsEnum, IsIn, IsInt, IsOptional, IsString, IsUUID, Max, Min } from 'class-validator';
 
 import { OrderStatus, OrderType, PaymentStatus } from '../order.entity.js';
 
 export class ListOrdersDto {
+  @IsOptional()
+  @IsIn(['standard', 'design'])
+  view?: 'standard' | 'design';
+
   @IsOptional()
   @IsEnum(OrderType)
   orderType?: OrderType;
@@ -36,8 +40,20 @@ export class ListOrdersDto {
   @Transform(({ value }) => (value ? Number(value) : undefined))
   @IsInt()
   @Min(1)
-  @Max(100)
+  @Max(200)
   limit?: number;
+
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === undefined || value === null || value === '') return undefined;
+    if (typeof value === 'boolean') return value;
+    const normalized = String(value).toLowerCase();
+    if (normalized === 'true' || normalized === '1') return true;
+    if (normalized === 'false' || normalized === '0') return false;
+    return undefined;
+  })
+  @IsBoolean()
+  excludeDesign?: boolean;
 
   @IsOptional()
   @Transform(({ value }) => (value ? Number(value) : undefined))

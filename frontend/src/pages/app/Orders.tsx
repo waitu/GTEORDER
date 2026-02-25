@@ -5,7 +5,7 @@ import { DashboardLayout } from '../../components/DashboardLayout';
 import { OrdersFilterBar } from '../../components/orders/OrdersFilterBar';
 import { OrdersTable } from '../../components/orders/OrdersTable';
 import { EmptyState } from '../../components/EmptyState';
-import { fetchOrder, fetchOrders, Order, OrderStatus, OrderType, OrdersQueryParams, OrdersResponse, PaymentStatus, payOrders } from '../../api/orders';
+import { fetchOrder, fetchOrders, fetchOrdersSummary, Order, OrderStatus, OrderType, OrdersQueryParams, OrdersResponse, OrdersSummaryResponse, PaymentStatus, payOrders } from '../../api/orders';
 import { OrderDetailModal } from '../../components/orders/OrderDetailModal';
 import { ImportLabelsModal } from '../../components/orders/ImportLabelsModal';
 import CreateDesignModal from '../../components/orders/CreateDesignModal';
@@ -14,7 +14,7 @@ import { AlertModal } from '../../components/AlertModal';
 
 const ORDER_TYPES: OrderType[] = ['active_tracking', 'empty_package', 'design', 'other'];
 const STANDARD_ORDER_TYPES: Array<Extract<OrderType, 'active_tracking' | 'empty_package'>> = ['active_tracking', 'empty_package'];
-const ORDER_STATUSES: OrderStatus[] = ['pending', 'processing', 'completed', 'error', 'failed'];
+const ORDER_STATUSES: OrderStatus[] = ['pending', 'processing', 'completed', 'failed'];
 const PAYMENT_STATUSES: PaymentStatus[] = ['unpaid', 'paid'];
 const DEFAULT_LIMIT = 20;
 const FILTERABLE_KEYS: (keyof OrdersQueryParams)[] = ['orderType', 'orderStatus', 'paymentStatus', 'search', 'from', 'to', 'limit', 'designSubtype'];
@@ -113,6 +113,11 @@ const OrdersPageBase = ({ view }: { view: OrdersView }) => {
     queryFn: () => fetchOrders(queryState),
   });
 
+  const summaryQuery = useQuery<OrdersSummaryResponse>({
+    queryKey: ['orders', 'summary', view],
+    queryFn: () => fetchOrdersSummary(view),
+  });
+
   const detailQuery = useQuery({
     queryKey: selectedOrderId ? ['orders', 'detail', selectedOrderId] : ['orders', 'detail', 'idle'],
     queryFn: () => (selectedOrderId ? fetchOrder(selectedOrderId) : Promise.reject()),
@@ -123,17 +128,16 @@ const OrdersPageBase = ({ view }: { view: OrdersView }) => {
 
   const summary = useMemo(() => {
     const orders = (data?.data ?? []) as Order[];
-    const visible = view === 'design'
-      ? orders.filter((o) => o.orderType === 'design')
-      : orders.filter((o) => o.orderType !== 'design');
+    const visible = orders;
     const pending = visible.filter((o) => o.orderStatus === 'pending').length;
     const processing = visible.filter((o) => o.orderStatus === 'processing').length;
     const unpaid = visible.filter((o) => o.paymentStatus === 'unpaid').length;
     const paid = visible.filter((o) => o.paymentStatus === 'paid').length;
-    const errorCount = visible.filter((o) => o.orderStatus === 'error' || o.orderStatus === 'failed').length;
-    const total = view === 'design' ? data?.meta.total ?? visible.length : visible.length;
-    return { total, pending, processing, unpaid, paid, errorCount };
-  }, [data, view]);
+    const errorCount = visible.filter((o) => o.orderStatus === 'failed').length;
+    const total = data?.meta.total ?? visible.length;
+    const localSummary = { total, pending, processing, unpaid, paid, errorCount };
+    return summaryQuery.data ?? localSummary;
+  }, [data, summaryQuery.data]);
 
   const hasActiveFilters = useMemo(() => {
     return FILTERABLE_KEYS.some((key) => {
@@ -194,10 +198,8 @@ const OrdersPageBase = ({ view }: { view: OrdersView }) => {
 
   const currentPage = data?.meta.page ?? queryState.page ?? 1;
   const allOrders = (data?.data ?? []) as Order[];
-  const visibleOrders = view === 'design'
-    ? allOrders.filter((order) => order.orderType === 'design')
-    : allOrders.filter((order) => order.orderType !== 'design');
-  const totalCount = view === 'design' ? data?.meta.total ?? visibleOrders.length : visibleOrders.length;
+  const visibleOrders = allOrders;
+  const totalCount = data?.meta.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(totalCount / (data?.meta.limit ?? queryState.limit ?? DEFAULT_LIMIT)));
 
   const handleExport = useCallback((range: { from: string; to: string }) => {

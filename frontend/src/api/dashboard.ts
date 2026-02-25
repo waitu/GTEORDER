@@ -72,8 +72,8 @@ export const fetchEmptyOrders = async () => {
 };
 
 export const fetchBalance = async () => {
-  const { data } = await http.get<BalanceResponse>('/balance');
-  return data;
+  const { data } = await http.get<SummaryResponse>('/dashboard/summary');
+  return { balance: data?.balance } as BalanceResponse;
 };
 
 export const fetchPricing = async () => {

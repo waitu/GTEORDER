@@ -290,7 +290,7 @@ export class LabelsService {
       total: parsed.length,
       validCount,
       errors,
-      previewSample: parsed.slice(0, 10),
+      previewSample: parsed,
     };
   }
 

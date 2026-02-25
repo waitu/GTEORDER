@@ -28,7 +28,7 @@ const statusOptions = [
   { label: 'Pending', value: 'pending' },
   { label: 'Processing', value: 'processing' },
   { label: 'Completed', value: 'completed' },
-  { label: 'Error', value: 'error' },
+  { label: 'Error', value: 'failed' },
 ];
 
 const paymentOptions = [
@@ -37,7 +37,7 @@ const paymentOptions = [
   { label: 'Paid', value: 'paid' },
 ];
 
-const limitOptions = [10, 20, 50];
+const limitOptions = [20, 50, 100, 200];
 
 const formatRangeLabel = (from?: string, to?: string) => {
   const fromDate = from ? new Date(from) : null;

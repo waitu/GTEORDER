@@ -12,8 +12,10 @@ import { TableColumn } from '../../components/Table';
 import {
   AdminOrder,
   AdminOrdersResponse,
+  AdminOrdersSummary,
   fetchAdminOrderDetail,
   fetchAdminOrders,
+  fetchAdminOrdersSummary,
   updateAdminOrderStatus,
   updateAdminPaymentStatus,
   updateAdminResultUrl,
@@ -27,7 +29,7 @@ import BulkFailModal from '../../components/admin/BulkFailModal';
 import { OrderStatus, OrdersQueryParams, PaymentStatus } from '../../api/orders';
 
 const ORDER_TYPE_FILTERS = ['active_tracking', 'empty_package', 'design'] as const;
-const ORDER_STATUS_FILTERS = ['pending', 'processing', 'completed', 'error'] as const;
+const ORDER_STATUS_FILTERS = ['pending', 'processing', 'completed', 'failed'] as const;
 const PAYMENT_STATUS_FILTERS = ['unpaid', 'paid'] as const;
 const DEFAULT_LIMIT = 20;
 const FILTERABLE_KEYS: (keyof OrdersQueryParams)[] = ['orderType', 'orderStatus', 'paymentStatus', 'search', 'from', 'to', 'limit', 'designSubtype'];
@@ -101,7 +103,12 @@ export const AdminOrdersPage = () => {
 
   const { data, isLoading, isError, isFetching } = useQuery<AdminOrdersResponse>({
     queryKey: ordersQueryKey,
-    queryFn: () => fetchAdminOrders(queryState),
+    queryFn: () => fetchAdminOrders(queryState, view),
+  });
+
+  const summaryQuery = useQuery<AdminOrdersSummary>({
+    queryKey: ['admin', 'orders', 'summary', view],
+    queryFn: () => fetchAdminOrdersSummary(view === 'design' ? { orderType: 'design' } : {}, view),
   });
 
   const hasActiveFilters = useMemo(() => {
@@ -370,8 +377,8 @@ export const AdminOrdersPage = () => {
 
   const filteredOrders = useMemo(() => {
     if (!data?.data) return [] as AdminOrder[];
-    return view === 'design' ? data.data.filter((o) => o.orderType === 'design') : data.data.filter((o) => o.orderType !== 'design');
-  }, [data?.data, view]);
+    return data.data;
+  }, [data?.data]);
 
   const summary = useMemo(() => {
     const orders = filteredOrders;
@@ -379,10 +386,11 @@ export const AdminOrdersPage = () => {
     const processing = orders.filter((o) => o.orderStatus === 'processing').length;
     const paid = orders.filter((o) => o.paymentStatus === 'paid').length;
     const unpaid = orders.filter((o) => o.paymentStatus === 'unpaid').length;
-    const errorCount = orders.filter((o) => o.orderStatus === 'error' || o.orderStatus === 'failed').length;
-    const total = view === 'design' ? data?.meta.total ?? orders.length : orders.length;
-    return { total, pending, processing, paid, unpaid, errorCount };
-  }, [filteredOrders, view, data?.meta.total]);
+    const errorCount = orders.filter((o) => o.orderStatus === 'failed').length;
+    const total = data?.meta.total ?? orders.length;
+    const localSummary = { total, pending, processing, paid, unpaid, errorCount };
+    return summaryQuery.data ?? localSummary;
+  }, [filteredOrders, view, data?.meta.total, summaryQuery.data]);
 
   const handleExport = (range: { from: string; to: string }) => {
     if (filteredOrders.length === 0) return;
@@ -555,7 +563,7 @@ export const AdminOrdersPage = () => {
     setArchiveConfirm({ ids: selectedList });
   };
 
-  const totalCount = filteredOrders.length;
+  const totalCount = data?.meta.total ?? 0;
   const totalPages = data ? Math.max(1, Math.ceil(totalCount / (data.meta.limit ?? queryState.limit ?? DEFAULT_LIMIT))) : 1;
   const currentPage = data?.meta.page ?? queryState.page ?? 1;
 
@@ -641,7 +649,7 @@ export const AdminOrdersPage = () => {
           containerClass: 'border border-rose-100 bg-rose-50 hover:border-rose-200',
           labelClass: 'text-rose-700',
           valueClass: 'text-xl text-rose-900',
-          onClick: () => applyFilter({ orderStatus: 'error', paymentStatus: undefined }),
+          onClick: () => applyFilter({ orderStatus: 'failed', paymentStatus: undefined }),
         }].map((card) => (
           <button
             key={card.label}

@@ -38,6 +38,15 @@ export type OrderListResponse = {
   };
 };
 
+export type OrderSummaryResponse = {
+  total: number;
+  pending: number;
+  processing: number;
+  unpaid: number;
+  paid: number;
+  errorCount: number;
+};
+
 @Injectable()
 export class OrdersService {
   constructor(
@@ -68,6 +77,9 @@ export class OrdersService {
     }
     if (filters.orderType) {
       qb.andWhere('o.orderType = :orderType', { orderType: filters.orderType });
+    }
+    if (filters.excludeDesign) {
+      qb.andWhere('o.orderType <> :excludeType', { excludeType: OrderType.DESIGN });
     }
     if (filters.designSubtype) {
       qb.andWhere('o.designSubtype = :designSubtype', { designSubtype: filters.designSubtype });
@@ -124,6 +136,33 @@ export class OrdersService {
     return {
       data: mapped,
       meta: { page, limit, total },
+    };
+  }
+
+  async summarizeOrders(filters: ListOrdersDto, options?: { excludeDesign?: boolean }): Promise<OrderSummaryResponse> {
+    const qb = this.ordersRepo.createQueryBuilder('o');
+    this.applyFilters(qb, filters);
+
+    if (options?.excludeDesign) {
+      qb.andWhere('o.orderType <> :designType', { designType: OrderType.DESIGN });
+    }
+
+    const raw = await qb
+      .select('COUNT(*)', 'total')
+      .addSelect("SUM(CASE WHEN o.orderStatus = 'pending' THEN 1 ELSE 0 END)", 'pending')
+      .addSelect("SUM(CASE WHEN o.orderStatus = 'processing' THEN 1 ELSE 0 END)", 'processing')
+      .addSelect("SUM(CASE WHEN o.paymentStatus = 'unpaid' THEN 1 ELSE 0 END)", 'unpaid')
+      .addSelect("SUM(CASE WHEN o.paymentStatus = 'paid' THEN 1 ELSE 0 END)", 'paid')
+      .addSelect("SUM(CASE WHEN o.orderStatus = 'failed' THEN 1 ELSE 0 END)", 'errorCount')
+      .getRawOne<Record<string, string | null>>();
+
+    return {
+      total: Number(raw?.total ?? 0),
+      pending: Number(raw?.pending ?? 0),
+      processing: Number(raw?.processing ?? 0),
+      unpaid: Number(raw?.unpaid ?? 0),
+      paid: Number(raw?.paid ?? 0),
+      errorCount: Number(raw?.errorCount ?? 0),
     };
   }
 

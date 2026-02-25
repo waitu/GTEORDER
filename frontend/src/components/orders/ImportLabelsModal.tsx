@@ -372,46 +372,48 @@ export const ImportLabelsModal = ({ open, onClose, onSubmit, isSubmitting, defau
               </div>
             </div>
 
-            <table className="w-full min-w-[720px] border-collapse overflow-hidden rounded-xl border border-slate-200 text-sm shadow-sm">
-              <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-600">
-                <tr>
-                  <th className="px-3 py-2 text-left">Label URL</th>
-                  <th className="px-3 py-2 text-left">Service Type</th>
-                  <th className="px-3 py-2 text-left">Tracking Number</th>
-                  <th className="px-3 py-2 text-left">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((row) => {
-                  return (
-                    <tr key={row.id} className={row.status === 'invalid' ? 'bg-rose-50' : 'bg-white'}>
-                      <td className="px-3 py-2 align-middle">
-                        {row.labelFileUrl ? (
-                          <a className="text-sm text-sky-700 hover:underline" href={row.labelFileUrl} target="_blank" rel="noreferrer">
-                            {row.labelFileUrl}
-                          </a>
-                        ) : (
-                          <span className="text-sm text-slate-400">—</span>
-                        )}
-                      </td>
-                      <td className="px-3 py-2 align-middle">
-                        <span className="text-sm text-slate-700">{row.serviceType ?? '—'}</span>
-                      </td>
-                      <td className="px-3 py-2 align-middle">
-                        <span className="text-sm text-slate-700">{row.trackingNumber ?? '—'}</span>
-                      </td>
-                      <td className="px-3 py-2 align-middle">
-                        {row.status === 'valid' ? (
-                          <span className="inline-flex items-center rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800">Valid</span>
-                        ) : (
-                          <span className="inline-flex items-center rounded-full bg-rose-100 px-3 py-1 text-xs font-semibold text-rose-800">{row.error ?? 'Invalid'}</span>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+            <div className="max-h-[420px] overflow-auto rounded-xl border border-slate-200 shadow-sm">
+              <table className="w-full min-w-[720px] border-collapse text-sm">
+                <thead className="sticky top-0 z-10 bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                  <tr>
+                    <th className="px-3 py-2 text-left">Label URL</th>
+                    <th className="px-3 py-2 text-left">Service Type</th>
+                    <th className="px-3 py-2 text-left">Tracking Number</th>
+                    <th className="px-3 py-2 text-left">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((row) => {
+                    return (
+                      <tr key={row.id} className={row.status === 'invalid' ? 'bg-rose-50' : 'bg-white'}>
+                        <td className="px-3 py-2 align-middle">
+                          {row.labelFileUrl ? (
+                            <a className="text-sm text-sky-700 hover:underline" href={row.labelFileUrl} target="_blank" rel="noreferrer">
+                              {row.labelFileUrl}
+                            </a>
+                          ) : (
+                            <span className="text-sm text-slate-400">—</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2 align-middle">
+                          <span className="text-sm text-slate-700">{row.serviceType ?? '—'}</span>
+                        </td>
+                        <td className="px-3 py-2 align-middle">
+                          <span className="text-sm text-slate-700">{row.trackingNumber ?? '—'}</span>
+                        </td>
+                        <td className="px-3 py-2 align-middle">
+                          {row.status === 'valid' ? (
+                            <span className="inline-flex items-center rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800">Valid</span>
+                          ) : (
+                            <span className="inline-flex items-center rounded-full bg-rose-100 px-3 py-1 text-xs font-semibold text-rose-800">{row.error ?? 'Invalid'}</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
 

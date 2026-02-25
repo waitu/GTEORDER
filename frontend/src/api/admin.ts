@@ -84,6 +84,15 @@ export type AdminOrder = Order;
 
 export type AdminOrdersResponse = OrdersResponse & { data: AdminOrder[] };
 
+export type AdminOrdersSummary = {
+  total: number;
+  pending: number;
+  processing: number;
+  unpaid: number;
+  paid: number;
+  errorCount: number;
+};
+
 export type ByeastsideSettings = {
   cron: string;
   enabled: boolean;
@@ -204,9 +213,26 @@ export const updateUserRole = async (id: string, role: 'user' | 'admin') => {
   return data;
 };
 
-export const fetchAdminOrders = async (params: OrdersQueryParams = {}): Promise<AdminOrdersResponse> => {
+export const fetchAdminOrders = async (params: OrdersQueryParams = {}, view?: 'standard' | 'design'): Promise<AdminOrdersResponse> => {
+  const serialized = serializeOrdersQueryParams(params) as Record<string, string | number>;
+  if (view) serialized.view = view;
   const { data } = await http.get<AdminOrdersResponse>('/admin/orders', {
-    params: serializeOrdersQueryParams(params),
+    params: serialized,
+  });
+  return data;
+};
+
+export const fetchAdminOrdersSummary = async (
+  params: OrdersQueryParams = {},
+  view?: 'standard' | 'design',
+): Promise<AdminOrdersSummary> => {
+  const serialized = serializeOrdersQueryParams(params) as Record<string, string | number>;
+  delete serialized.page;
+  delete serialized.limit;
+  if (view) serialized.view = view;
+
+  const { data } = await http.get<AdminOrdersSummary>('/admin/orders/summary', {
+    params: serialized,
   });
   return data;
 };

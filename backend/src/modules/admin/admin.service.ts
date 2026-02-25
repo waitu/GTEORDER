@@ -106,7 +106,7 @@ export class AdminService {
       this.loginAuditRepo.count({ where: { result: 'success', createdAt: MoreThan(since24h) } }),
       this.loginAuditRepo.count({ where: { result: 'fail', createdAt: MoreThan(since24h) } }),
       this.usersRepo.find({ order: { createdAt: 'DESC' }, take: 5 }),
-      this.registrationRepo.find({ relations: ['user'], order: { createdAt: 'DESC' }, take: 5 }),
+      this.registrationRepo.find({ where: { state: 'pending' }, relations: ['user'], order: { createdAt: 'DESC' }, take: 5 }),
       this.adminAuditRepo.find({ order: { createdAt: 'DESC' }, take: 5 }),
     ]);
 

@@ -1,6 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
+import { randomUUID } from 'crypto';
 import { Repository } from 'typeorm';
 
 import { AdminService } from '../admin/admin.service.js';
@@ -76,7 +77,12 @@ export class AuthService {
     const user = await this.usersService.findByEmail(params.email);
     if (!user) {
       await this.recordLoginAudit({ result: 'fail', reason: 'user_not_found', ip: params.ip, userAgent: params.userAgent, deviceFingerprint: fingerprintHash });
-      throw new UnauthorizedException('Invalid credentials');
+      const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
+      return {
+        needOtp: true,
+        otpRequestId: randomUUID(),
+        expiresAt,
+      };
     }
 
     if (user.status !== 'active') {

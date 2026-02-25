@@ -89,10 +89,12 @@ export const AdminDashboardPage = () => {
   });
 
   const recentUsers = data?.recentUsers ?? [];
-  const recentRequests = (data?.recentRequests ?? []).map((r) => ({
-    ...r,
-    status: (r as any).status ?? (r as any).state ?? 'pending',
-  }));
+  const recentRequests = (data?.recentRequests ?? [])
+    .map((r) => ({
+      ...r,
+      status: (r as any).status ?? (r as any).state ?? 'pending',
+    }))
+    .filter((r) => r.status === 'pending');
   const recentAudits = data?.recentAdminAudits ?? [];
 
   const renderStatCard = (

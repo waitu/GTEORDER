@@ -16,8 +16,14 @@ export class AdminOrdersController {
   constructor(private readonly ordersService: OrdersService) {}
 
   @Get()
-  async listOrders(@Query() query: ListOrdersDto) {
-    return this.ordersService.listOrders(query, { includeUserEmail: true });
+  async listOrders(@Query() query: ListOrdersDto, @Query('view') view?: string) {
+    const normalized: ListOrdersDto = { ...query, excludeDesign: view === 'standard' ? true : query.excludeDesign };
+    return this.ordersService.listOrders(normalized, { includeUserEmail: true });
+  }
+
+  @Get('summary')
+  async summary(@Query() query: ListOrdersDto, @Query('view') view?: string) {
+    return this.ordersService.summarizeOrders(query, { excludeDesign: view === 'standard' });
   }
 
   @Get(':id')

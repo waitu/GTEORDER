@@ -22,7 +22,7 @@ export const RegisterPage = () => {
     setLoading(true);
     try {
       await registerEmail(email.trim());
-      setInfo('Your request has been sent. Please wait for admin approval.');
+      setInfo('Your request has been sent. Please contact Telegram to activate your account.');
     } catch (err) {
       console.error(err);
       setError('Could not submit your request. Please try again.');
@@ -45,7 +45,19 @@ export const RegisterPage = () => {
           />
         </FormField>
 
-        {info && <p className="text-sm text-sky-700">{info}</p>}
+        {info && (
+          <p className="text-sm text-sky-700">
+            {info}{' '}
+            <a
+              href="https://t.me/+HjRCgIXFD7hlYjhl"
+              target="_blank"
+              rel="noreferrer"
+              className="font-semibold underline hover:text-sky-900"
+            >
+              https://t.me/+HjRCgIXFD7hlYjhl
+            </a>
+          </p>
+        )}
         {error && !info ? <p className="text-sm text-red-600">{error}</p> : null}
 
         <button

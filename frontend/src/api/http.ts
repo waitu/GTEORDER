@@ -48,14 +48,12 @@ let refreshPromise: Promise<string | null> | null = null;
 
 async function refreshAccessToken(): Promise<string | null> {
   const refreshToken = getRefreshToken();
-  if (!refreshToken) {
-    return null;
-  }
 
   try {
+    const payload = refreshToken ? { refreshToken } : {};
     const { data } = await axios.post<{ accessToken?: string; refreshToken?: string }>(
       `${API_BASE_URL}/auth/refresh`,
-      { refreshToken },
+      payload,
       { withCredentials: true },
     );
 
@@ -114,6 +112,7 @@ http.interceptors.response.use(
 export {
   http,
   getAccessToken,
+  refreshAccessToken,
   setAccessToken,
   getRefreshToken,
   setRefreshToken,

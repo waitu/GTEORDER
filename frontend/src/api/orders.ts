@@ -58,6 +58,15 @@ export type OrdersResponse = {
     };
 };
 
+export type OrdersSummaryResponse = {
+    total: number;
+    pending: number;
+    processing: number;
+    unpaid: number;
+    paid: number;
+    errorCount: number;
+};
+
 const normalizeDateParam = (value?: string | null) => {
     if (!value) return undefined;
     const date = new Date(value);
@@ -85,6 +94,13 @@ export const fetchOrders = async (params: OrdersQueryParams = {}): Promise<Order
         params: serializeOrdersQueryParams(params),
     });
 
+    return data;
+};
+
+export const fetchOrdersSummary = async (view: 'standard' | 'design'): Promise<OrdersSummaryResponse> => {
+    const { data } = await http.get<OrdersSummaryResponse>('/orders/summary', {
+        params: { view },
+    });
     return data;
 };
 

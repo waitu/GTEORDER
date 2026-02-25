@@ -9,7 +9,7 @@ import {
 } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { loginWithEmail, logout as apiLogout, resendOtp as resendOtpApi, verifyOtp as verifyOtpApi } from '../api/auth';
-import { getAccessToken } from '../api/http';
+import { getAccessToken, refreshAccessToken } from '../api/http';
 
 type User = {
   id: string;
@@ -80,8 +80,17 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const restoreSession = useCallback(async () => {
     setIsLoading(true);
     try {
-      const token = getAccessToken();
-      const decoded = decodeUserFromToken(token);
+      let token = getAccessToken();
+      let decoded = decodeUserFromToken(token);
+
+      if (!decoded) {
+        const refreshedToken = await refreshAccessToken();
+        if (refreshedToken) {
+          token = refreshedToken;
+          decoded = decodeUserFromToken(token);
+        }
+      }
+
       if (decoded) {
         setUser(decoded);
         setIsAuthenticated(true);

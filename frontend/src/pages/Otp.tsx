@@ -84,6 +84,10 @@ export const OtpPage = () => {
   return (
     <AuthLayout title="Enter OTP">
       <form onSubmit={onSubmit} noValidate className="space-y-5">
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          Please check your email inbox carefully. If you do not see the OTP code, check <span className="font-semibold">Spam/Trash</span> and <span className="font-semibold">All Mail</span> folders as well.
+        </div>
+
         <FormField label="6-digit code">
           <Input
             type="text"
