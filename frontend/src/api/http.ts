@@ -41,6 +41,7 @@ const setDeviceToken = (token?: string | null) => {
 const logout = () => {
   setAccessToken(null);
   setRefreshToken(null);
+  setDeviceToken(null);
   window.dispatchEvent(new Event('app:logout'));
 };
 
