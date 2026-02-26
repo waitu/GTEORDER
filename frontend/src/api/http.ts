@@ -1,6 +1,7 @@
 import axios, { AxiosError, AxiosInstance, InternalAxiosRequestConfig } from 'axios';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '';
+const ALLOW_COOKIE_REFRESH = String(import.meta.env.VITE_ALLOW_COOKIE_REFRESH ?? '').toLowerCase() === 'true';
 const ACCESS_TOKEN_KEY = 'accessToken';
 const REFRESH_TOKEN_KEY = 'refreshToken';
 const DEVICE_TOKEN_KEY = 'deviceToken';
@@ -50,6 +51,10 @@ let refreshPromise: Promise<string | null> | null = null;
 async function refreshAccessToken(): Promise<string | null> {
   const refreshToken = getRefreshToken();
 
+  if (!refreshToken && !ALLOW_COOKIE_REFRESH) {
+    return null;
+  }
+
   try {
     const payload = refreshToken ? { refreshToken } : {};
     const { data } = await axios.post<{ accessToken?: string; refreshToken?: string }>(
@@ -67,7 +72,9 @@ async function refreshAccessToken(): Promise<string | null> {
 
     return data.accessToken ?? null;
   } catch (err) {
-    console.error('Token refresh failed', err);
+    if (refreshToken || ALLOW_COOKIE_REFRESH) {
+      console.error('Token refresh failed', err);
+    }
     return null;
   }
 }
