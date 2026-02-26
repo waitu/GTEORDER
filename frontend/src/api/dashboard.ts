@@ -45,9 +45,14 @@ export type PricingTier = {
 };
 
 export type Device = {
-  id?: string;
+  id: string;
+  deviceName?: string;
   name: string;
+  lastIp?: string | null;
+  lastUsedAt?: string | null;
   lastUsed?: string;
+  expiresAt?: string | null;
+  createdAt?: string;
   status?: string;
 };
 
@@ -82,6 +87,25 @@ export const fetchPricing = async () => {
 };
 
 export const fetchDevices = async () => {
-  const { data } = await http.get<Device[]>('/me/devices');
-  return data ?? [];
+  const { data } = await http.get<any[]>('/me/devices');
+  return (data ?? []).map((row) => {
+    const lastUsedRaw = row.lastUsedAt ?? row.lastUsed;
+    const expiresAt = row.expiresAt ?? null;
+    const isExpired = expiresAt ? new Date(expiresAt).getTime() < Date.now() : false;
+    return {
+      id: row.id,
+      deviceName: row.deviceName ?? row.name,
+      name: row.deviceName ?? row.name ?? 'Unknown device',
+      lastIp: row.lastIp ?? null,
+      lastUsedAt: lastUsedRaw ?? null,
+      lastUsed: lastUsedRaw ? new Date(lastUsedRaw).toLocaleString() : undefined,
+      expiresAt,
+      createdAt: row.createdAt,
+      status: isExpired ? 'Expired' : 'Trusted',
+    } as Device;
+  });
+};
+
+export const revokeDevice = async (id: string) => {
+  await http.delete(`/me/devices/${id}`);
 };

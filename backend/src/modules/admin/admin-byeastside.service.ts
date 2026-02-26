@@ -5,6 +5,8 @@ import { DataSource } from 'typeorm';
 import { AppSetting } from '../../shared/config/app-setting.entity.js';
 import { runByeastsideSync } from '../../shared/integrations/byeastside-sync.js';
 import { UpdateByeastsideSettingsDto, RunByeastsideSyncDto } from './dto/byeastside-settings.dto.js';
+import { AdminByeastsideSyncHistory } from './admin-byeastside-sync.entity.js';
+import { ListByeastsideHistoryDto } from './dto/list-byeastside-history.dto.js';
 
 export type ByeastsideSettings = {
   cron: string;
@@ -20,6 +22,10 @@ const DEFAULT_CRON = '0 21 * * *';
 @Injectable()
 export class AdminByeastsideService {
   constructor(private readonly dataSource: DataSource, private readonly config: ConfigService) {}
+
+  private get historyRepo() {
+    return this.dataSource.getRepository(AdminByeastsideSyncHistory);
+  }
 
   private getEnvNumber(key: string, fallback: number): number {
     const raw = this.config.get<string>(key);
@@ -62,25 +68,77 @@ export class AdminByeastsideService {
     return merged;
   }
 
-  async syncNow(dto?: RunByeastsideSyncDto) {
+  async syncNow(dto?: RunByeastsideSyncDto, triggeredBy?: string) {
     const apiKey = this.config.get<string>('BYEASTSIDE_API_KEY');
     const apiBase = this.config.get<string>('BYEASTSIDE_API_BASE') || 'https://byeastside.uk/api/customer/pdfs';
     const labelsBase = this.config.get<string>('BYEASTSIDE_LABELS_BASE') || 'https://api-label-scan.aletech.co/api/customer/pdfs';
-
-    if (!apiKey) {
-      throw new Error('Missing BYEASTSIDE_API_KEY');
-    }
-
     const settings = this.normalizeSettings({ ...(await this.getSettings()), ...dto });
 
-    return runByeastsideSync({
-      dataSource: this.dataSource,
-      apiKey,
-      apiBase,
-      labelsBase,
-      limit: settings.limit,
-      page: settings.page,
-      pageSize: settings.pageSize,
+    try {
+      if (!apiKey) {
+        throw new Error('Missing BYEASTSIDE_API_KEY');
+      }
+
+      const result = await runByeastsideSync({
+        dataSource: this.dataSource,
+        apiKey,
+        apiBase,
+        labelsBase,
+        limit: settings.limit,
+        page: settings.page,
+        pageSize: settings.pageSize,
+      });
+
+      await this.historyRepo.save(
+        this.historyRepo.create({
+          status: 'success',
+          settings: { ...settings, triggeredBy: triggeredBy ?? null },
+          result,
+          errorMessage: null,
+        }),
+      );
+
+      return result;
+    } catch (error: any) {
+      const message = error?.message ?? 'Unknown sync error';
+
+      await this.historyRepo.save(
+        this.historyRepo.create({
+          status: 'failed',
+          settings: { ...settings, triggeredBy: triggeredBy ?? null },
+          result: null,
+          errorMessage: String(message),
+        }),
+      );
+
+      throw error;
+    }
+  }
+
+  async listHistory(query: ListByeastsideHistoryDto) {
+    const page = Math.max(1, query.page ?? 1);
+    const limit = Math.min(Math.max(1, query.limit ?? 10), 100);
+
+    const [rows, total] = await this.historyRepo.findAndCount({
+      order: { createdAt: 'DESC' },
+      skip: (page - 1) * limit,
+      take: limit,
     });
+
+    return {
+      data: rows.map((row) => ({
+        id: row.id,
+        status: row.status,
+        settings: row.settings,
+        result: row.result,
+        errorMessage: row.errorMessage,
+        createdAt: row.createdAt,
+      })),
+      meta: {
+        page,
+        limit,
+        total,
+      },
+    };
   }
 }

@@ -110,6 +110,20 @@ export type ByeastsideSyncResult = {
   statusCounts: Record<string, number>;
 };
 
+export type ByeastsideSyncHistoryItem = {
+  id: string;
+  status: 'success' | 'failed';
+  settings: Partial<ByeastsideSettings> & { triggeredBy?: string | null };
+  result?: ByeastsideSyncResult | null;
+  errorMessage?: string | null;
+  createdAt: string;
+};
+
+export type ByeastsideSyncHistoryResponse = {
+  data: ByeastsideSyncHistoryItem[];
+  meta: { page: number; limit: number; total: number };
+};
+
 export const fetchRegistrationRequests = async (): Promise<RegistrationRequest[]> => {
   const { data } = await http.get<RegistrationRequest[]>('/admin/registration-requests');
   return (data ?? []).map((item) => {
@@ -295,4 +309,20 @@ export const updateByeastsideSettings = async (payload: Partial<ByeastsideSettin
 export const runByeastsideSync = async (payload: Partial<ByeastsideSettings>): Promise<ByeastsideSyncResult> => {
   const { data } = await http.post<ByeastsideSyncResult>('/admin/byeastside/sync', payload);
   return data;
+};
+
+export const fetchByeastsideSyncHistory = async (params: { page?: number; limit?: number } = {}): Promise<ByeastsideSyncHistoryResponse> => {
+  const { data } = await http.get<ByeastsideSyncHistoryResponse>('/admin/byeastside/history', {
+    params: {
+      page: params.page ?? 1,
+      limit: params.limit ?? 10,
+    },
+  });
+
+  return (
+    data ?? {
+      data: [],
+      meta: { page: params.page ?? 1, limit: params.limit ?? 10, total: 0 },
+    }
+  );
 };

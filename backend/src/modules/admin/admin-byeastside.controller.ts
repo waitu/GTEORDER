@@ -1,8 +1,10 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Request } from 'express';
 
 import { AdminAuthGuard } from './admin-auth.guard.js';
 import { AdminByeastsideService } from './admin-byeastside.service.js';
 import { RunByeastsideSyncDto, UpdateByeastsideSettingsDto } from './dto/byeastside-settings.dto.js';
+import { ListByeastsideHistoryDto } from './dto/list-byeastside-history.dto.js';
 
 @Controller('admin/byeastside')
 @UseGuards(AdminAuthGuard)
@@ -22,7 +24,12 @@ export class AdminByeastsideController {
 
   @Post('sync')
   @HttpCode(HttpStatus.OK)
-  async syncNow(@Body() body: RunByeastsideSyncDto) {
-    return this.service.syncNow(body);
+  async syncNow(@Body() body: RunByeastsideSyncDto, @Req() req: Request & { user?: any }) {
+    return this.service.syncNow(body, req.user?.sub);
+  }
+
+  @Get('history')
+  async listHistory(@Query() query: ListByeastsideHistoryDto) {
+    return this.service.listHistory(query);
   }
 }

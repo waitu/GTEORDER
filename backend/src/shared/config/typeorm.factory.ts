@@ -15,6 +15,7 @@ import { Label } from '../../modules/labels/label.entity.js';
 import { PricingRule } from '../../modules/pricing/pricing.entity.js';
 import { CreditTopup } from '../../modules/credit/credit-topup.entity.js';
 import { AppSetting } from './app-setting.entity.js';
+import { AdminByeastsideSyncHistory } from '../../modules/admin/admin-byeastside-sync.entity.js';
 
 export const typeOrmConfigFactory = (config: ConfigService): TypeOrmModuleOptions => {
   const databaseUrl = config.get<string>('DATABASE_URL');
@@ -42,6 +43,7 @@ export const typeOrmConfigFactory = (config: ConfigService): TypeOrmModuleOption
       BalanceTransaction,
       CreditTopup,
       AppSetting,
+      AdminByeastsideSyncHistory,
     ],
     synchronize,
     migrations: ['dist/migrations/*.js'],

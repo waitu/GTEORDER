@@ -21,9 +21,26 @@ import { AdminAccountsController } from './admin-accounts.controller.js';
 import { AdminLabelsController } from './admin-labels.controller.js';
 import { AdminByeastsideController } from './admin-byeastside.controller.js';
 import { AdminByeastsideService } from './admin-byeastside.service.js';
+import { AdminByeastsideSyncHistory } from './admin-byeastside-sync.entity.js';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([RegistrationRequest, AdminAudit, User, UserProfile, LoginAudit, RefreshToken, TrustedDevice, BalanceTransaction]), UsersModule, OrdersModule, LabelsModule, JwtModule.register({})],
+  imports: [
+    TypeOrmModule.forFeature([
+      RegistrationRequest,
+      AdminAudit,
+      User,
+      UserProfile,
+      LoginAudit,
+      RefreshToken,
+      TrustedDevice,
+      BalanceTransaction,
+      AdminByeastsideSyncHistory,
+    ]),
+    UsersModule,
+    OrdersModule,
+    LabelsModule,
+    JwtModule.register({}),
+  ],
   controllers: [AdminController, AdminOrdersController, AdminAccountsController, AdminLabelsController, AdminByeastsideController],
   providers: [AdminService, AdminAuthGuard, AdminByeastsideService],
   exports: [AdminService],

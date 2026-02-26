@@ -5,7 +5,9 @@ import { Card } from '../../components/Card';
 import { AlertModal } from '../../components/AlertModal';
 import {
   ByeastsideSettings,
+  ByeastsideSyncHistoryItem,
   ByeastsideSyncResult,
+  fetchByeastsideSyncHistory,
   fetchByeastsideSettings,
   updateByeastsideSettings,
   runByeastsideSync,
@@ -25,6 +27,8 @@ export const AdminByeastsidePage = () => {
   const queryClient = useQueryClient();
   const [form, setForm] = useState<ByeastsideSettings>(defaultSettings);
   const [lastResult, setLastResult] = useState<ByeastsideSyncResult | null>(null);
+  const [historyPage, setHistoryPage] = useState(1);
+  const historyLimit = 10;
   const [alert, setAlert] = useState<{ title: string; message: string } | null>(null);
 
   const settingsQuery = useQuery({
@@ -37,6 +41,18 @@ export const AdminByeastsidePage = () => {
       setForm(settingsQuery.data);
     }
   }, [settingsQuery.data]);
+
+  const historyQuery = useQuery({
+    queryKey: ['admin', 'byeastside', 'history', historyPage, historyLimit],
+    queryFn: () => fetchByeastsideSyncHistory({ page: historyPage, limit: historyLimit }),
+  });
+
+  useEffect(() => {
+    const first = historyQuery.data?.data?.[0];
+    if (!lastResult && first?.result) {
+      setLastResult(first.result);
+    }
+  }, [historyQuery.data, lastResult]);
 
   const saveMutation = useMutation({
     mutationFn: (payload: ByeastsideSettings) => updateByeastsideSettings(payload),
@@ -55,6 +71,7 @@ export const AdminByeastsidePage = () => {
     mutationFn: (payload: Partial<ByeastsideSettings>) => runByeastsideSync(payload),
     onSuccess: (data) => {
       setLastResult(data);
+      queryClient.invalidateQueries({ queryKey: ['admin', 'byeastside', 'history'] });
       setAlert({ title: 'Sync complete', message: 'Tracking data was refreshed.' });
     },
     onError: (err: any) => {
@@ -72,6 +89,27 @@ export const AdminByeastsidePage = () => {
 
   const updateForm = <K extends keyof ByeastsideSettings>(key: K, value: ByeastsideSettings[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const formatRunAt = (value?: string) => {
+    if (!value) return '—';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
+    return date.toLocaleString();
+  };
+
+  const renderHistoryResult = (row: ByeastsideSyncHistoryItem) => {
+    if (row.status === 'failed') {
+      return <span className="text-rose-600">{row.errorMessage ?? 'Sync failed'}</span>;
+    }
+    if (!row.result) {
+      return <span className="text-slate-500">No result payload</span>;
+    }
+    return (
+      <span className="text-slate-700">
+        PDFs {formatCount(row.result.pdfsProcessed)} · Labels {formatCount(row.result.labelsScanned)} · Updated {formatCount(row.result.ordersUpdated)}
+      </span>
+    );
   };
 
   const runQuickSync = (limit: number) => {
@@ -231,6 +269,70 @@ export const AdminByeastsidePage = () => {
           </div>
         ) : (
           <p className="text-sm text-slate-600">No runs yet. Use the buttons above to sync.</p>
+        )}
+      </Card>
+
+      <Card title="Sync History" description="Persistent run history for Byeastside tracking sync.">
+        {historyQuery.isLoading && <p className="text-sm text-slate-600">Loading history…</p>}
+        {historyQuery.isError && <p className="text-sm text-rose-600">Failed to load history.</p>}
+        {!historyQuery.isLoading && !historyQuery.isError && (
+          <>
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-slate-200 text-sm">
+                <thead className="bg-slate-50">
+                  <tr>
+                    <th className="px-3 py-2 text-left font-semibold text-slate-600">Run at</th>
+                    <th className="px-3 py-2 text-left font-semibold text-slate-600">Status</th>
+                    <th className="px-3 py-2 text-left font-semibold text-slate-600">Settings</th>
+                    <th className="px-3 py-2 text-left font-semibold text-slate-600">Details</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 bg-white">
+                  {(historyQuery.data?.data ?? []).map((row) => (
+                    <tr key={row.id}>
+                      <td className="px-3 py-2 text-slate-700">{formatRunAt(row.createdAt)}</td>
+                      <td className="px-3 py-2">
+                        <span className={`rounded-full px-2 py-1 text-xs font-semibold ${row.status === 'success' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
+                          {row.status}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 text-slate-700">
+                        limit {row.settings?.limit ?? '—'} · page {row.settings?.page ?? '—'} · pageSize {row.settings?.pageSize ?? '—'}
+                      </td>
+                      <td className="px-3 py-2">{renderHistoryResult(row)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {(historyQuery.data?.data?.length ?? 0) === 0 && (
+              <p className="mt-3 text-sm text-slate-600">No sync history yet.</p>
+            )}
+
+            <div className="mt-3 flex items-center justify-between text-sm">
+              <span className="text-slate-500">Total runs: {formatCount(historyQuery.data?.meta.total ?? 0)}</span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  className="rounded-lg border border-slate-200 px-3 py-1 font-semibold text-slate-700 disabled:opacity-50"
+                  onClick={() => setHistoryPage((p) => Math.max(1, p - 1))}
+                  disabled={(historyQuery.data?.meta.page ?? 1) <= 1}
+                >
+                  Previous
+                </button>
+                <span className="text-slate-600">Page {historyQuery.data?.meta.page ?? 1}</span>
+                <button
+                  type="button"
+                  className="rounded-lg border border-slate-200 px-3 py-1 font-semibold text-slate-700 disabled:opacity-50"
+                  onClick={() => setHistoryPage((p) => p + 1)}
+                  disabled={(historyQuery.data?.meta.page ?? 1) * (historyQuery.data?.meta.limit ?? historyLimit) >= (historyQuery.data?.meta.total ?? 0)}
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          </>
         )}
       </Card>
 
