@@ -89,7 +89,14 @@ http.interceptors.response.use(
       return Promise.reject(error);
     }
 
-    const originalRequest = config as InternalAxiosRequestConfig & { _retry?: boolean };
+    const originalRequest = config as InternalAxiosRequestConfig & { _retry?: boolean; skipAuthRefresh?: boolean };
+    const requestUrl = String(originalRequest.url ?? '');
+    const isAuthFlowRequest = /(^|\/)auth\/(login|register|otp\/verify|otp\/resend|refresh|logout)(\/|$)/.test(requestUrl);
+
+    if (originalRequest.skipAuthRefresh || isAuthFlowRequest) {
+      return Promise.reject(error);
+    }
+
     if (response.status === 401 && !originalRequest._retry) {
       originalRequest._retry = true;
       refreshPromise = refreshPromise ?? refreshAccessToken();

@@ -31,7 +31,7 @@ function getDeviceContext(): { platform?: string; timezone?: string } {
 export async function loginWithEmail(email: string) {
   const { platform, timezone } = getDeviceContext();
   const deviceToken = getDeviceToken() ?? undefined;
-  const { data } = await http.post<LoginResponse>('/auth/login', { email, deviceToken, platform, timezone });
+  const { data } = await http.post<LoginResponse>('/auth/login', { email, deviceToken, platform, timezone }, { skipAuthRefresh: true } as any);
 
   // If backend returned tokens (trusted device flow), persist them the same way as OTP verify.
   if (data.accessToken) {
@@ -57,7 +57,7 @@ export async function verifyOtp(otpRequestId: string, otp: string, trustDevice?:
     platform,
     timezone,
     deviceName: trustDevice ? platform ?? 'Browser' : undefined,
-  });
+  }, { skipAuthRefresh: true } as any);
 
   if (data.accessToken) {
     setAccessToken(data.accessToken);
@@ -73,16 +73,16 @@ export async function verifyOtp(otpRequestId: string, otp: string, trustDevice?:
 }
 
 export async function resendOtp(otpRequestId: string) {
-  const { data } = await http.post<ResendOtpResponse>('/auth/otp/resend', { otpRequestId });
+  const { data } = await http.post<ResendOtpResponse>('/auth/otp/resend', { otpRequestId }, { skipAuthRefresh: true } as any);
   return data;
 }
 
 export async function registerEmail(email: string) {
-  const { data } = await http.post<RegisterResponse>('/auth/register', { email });
+  const { data } = await http.post<RegisterResponse>('/auth/register', { email }, { skipAuthRefresh: true } as any);
   return data;
 }
 
 export async function logout() {
-  await http.post('/auth/logout');
+  await http.post('/auth/logout', {}, { skipAuthRefresh: true } as any);
   clearAuthState();
 }
