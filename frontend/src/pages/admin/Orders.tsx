@@ -692,21 +692,21 @@ export const AdminOrdersPage = () => {
           onClick={bulkStart}
           disabled={!canBulkStart || bulkStartMutation.isLoading}
         >
-          Start processing
+          Start selected
         </button>
         <button
           className="rounded-lg border border-slate-200 px-3 py-1 text-sm"
           onClick={onBulkFailClick}
           disabled={!canBulkFail || bulkFailMutation.isLoading}
         >
-          Mark failed
+          Mark selected failed
         </button>
         <button
           className="rounded-lg border border-slate-200 px-3 py-1 text-sm"
           onClick={bulkArchive}
           disabled={!canBulkArchive || bulkArchiveMutation.isLoading}
         >
-          Archive
+          Archive selected
         </button>
         <button
           className="rounded-lg border border-slate-200 px-3 py-1 text-sm"
@@ -718,10 +718,10 @@ export const AdminOrdersPage = () => {
           }}
           disabled={filteredOrders.length === 0 || isExporting}
         >
-          {isExporting ? 'Exporting…' : 'Export'}
+          {isExporting ? 'Exporting…' : 'Export filtered'}
         </button>
         <button className="ml-2 text-sm text-slate-500" onClick={() => setSelectedIds(new Set())}>
-          Clear
+          Clear selection
         </button>
       </div>
 
