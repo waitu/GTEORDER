@@ -3,6 +3,7 @@ import { Client } from 'pg';
 
 const TZ = 'Asia/Ho_Chi_Minh';
 const DEFAULT_CRON = '0 21 * * *';
+const TELEGRAM_MAX_MESSAGE_LENGTH = 3500;
 
 type PendingOrderRow = {
   id: string;
@@ -78,9 +79,9 @@ const fetchPendingOrders = async (): Promise<PendingOrderRow[]> => {
   }
 };
 
-const buildMessage = (orders: PendingOrderRow[]): string => {
+const buildMessages = (orders: PendingOrderRow[]): string[] => {
   if (orders.length === 0) {
-    return 'Không có order pending hôm nay.';
+    return ['Không có order pending hôm nay.'];
   }
 
   const lines = orders.map((order) => {
@@ -90,16 +91,30 @@ const buildMessage = (orders: PendingOrderRow[]): string => {
     return `- #${escapeHtml(order.id)} | ${escapeHtml(user)} | ${escapeHtml(formatAmount(amount))} | ${escapeHtml(formatDateTime(created))}`;
   });
 
-  return [
-    '<b>📌 Thông báo Order Pending (21:00)</b>',
-    '',
-    `Tổng số: ${orders.length}`,
-    '',
-    'Danh sách:',
-    ...lines,
-    '',
-    'Vui lòng kiểm tra và xử lý.',
-  ].join('\n');
+  const header = ['<b>📌 Thông báo Order Pending (21:00)</b>', '', `Tổng số: ${orders.length}`, '', 'Danh sách:'];
+  const footer = ['', 'Vui lòng kiểm tra và xử lý.'];
+
+  const chunks: string[][] = [];
+  let currentChunk: string[] = [];
+
+  for (const line of lines) {
+    const tentative = [...header, ...currentChunk, line, ...footer].join('\n');
+    if (tentative.length > TELEGRAM_MAX_MESSAGE_LENGTH && currentChunk.length > 0) {
+      chunks.push(currentChunk);
+      currentChunk = [line];
+      continue;
+    }
+    currentChunk.push(line);
+  }
+
+  if (currentChunk.length > 0) {
+    chunks.push(currentChunk);
+  }
+
+  return chunks.map((chunk, idx) => {
+    const partTitle = chunks.length > 1 ? [`Phần ${idx + 1}/${chunks.length}`, ''] : [];
+    return [...header, ...partTitle, ...chunk, ...footer].join('\n');
+  });
 };
 
 const sendTelegramMessage = async (target: TelegramTarget, text: string) => {
@@ -170,8 +185,10 @@ const resolveTelegramTarget = async (): Promise<TelegramTarget> => {
 const runOnce = async () => {
   const target = await resolveTelegramTarget();
   const orders = await fetchPendingOrders();
-  const message = buildMessage(orders);
-  await sendTelegramMessage(target, message);
+  const messages = buildMessages(orders);
+  for (const message of messages) {
+    await sendTelegramMessage(target, message);
+  }
 };
 
 const main = async () => {

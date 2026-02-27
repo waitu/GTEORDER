@@ -25,6 +25,8 @@ export type OrderListItem = {
   totalCost: number;
   orderStatus: OrderStatus;
   paymentStatus: PaymentStatus;
+  adminNote?: string | null;
+  internalNotes?: string | null;
   createdAt: Date;
   user?: { id: string; email?: string | null } | null;
 };
@@ -129,6 +131,8 @@ export class OrdersService {
       totalCost: order.totalCost,
       orderStatus: order.orderStatus,
       paymentStatus: order.paymentStatus,
+      adminNote: order.adminNote ?? null,
+      internalNotes: order.adminNote ?? null,
       createdAt: order.createdAt,
       user: options?.includeUserEmail && order.user ? { id: order.user.id, email: order.user.email ?? null } : undefined,
     }));

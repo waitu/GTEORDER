@@ -349,14 +349,14 @@ export const AdminOrderDetailModal = ({
 
         <div className="mt-6 rounded-xl border border-slate-100 bg-slate-50 p-4 text-sm">
           <div className="flex items-center justify-between">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Admin note</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Event Summaries</p>
             {isSavingNotes && <span className="text-xs text-slate-500">Saving…</span>}
           </div>
           <textarea
             className="mt-2 min-h-[96px] w-full rounded-md border border-slate-200 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500"
             value={notesDraft}
             onChange={(event) => setNotesDraft(event.target.value)}
-            placeholder="Add internal-only notes for this order"
+            placeholder="Event summaries from tracking (editable by admin)"
           />
           <div className="mt-2 flex justify-end">
             <button
@@ -374,8 +374,8 @@ export const AdminOrderDetailModal = ({
                 if (!order) return;
                 if (!notesDraft || notesDraft.trim() === '') {
                   setAlertState({
-                    title: 'Missing admin note',
-                    description: 'Please add an admin note before marking this order as failed.',
+                    title: 'Missing Event Summaries',
+                    description: 'Please add Event Summaries before marking this order as failed.',
                   });
                   return;
                 }
@@ -416,7 +416,7 @@ export const AdminOrderDetailModal = ({
         <ConfirmModal
           open={pendingAction?.type === 'fail'}
           title="Mark this order as failed?"
-          description="This will save the admin note and set the status to failed."
+          description="This will save Event Summaries and set the status to failed."
           confirmLabel="Mark failed"
           onCancel={() => setPendingAction(null)}
           onConfirm={() => {

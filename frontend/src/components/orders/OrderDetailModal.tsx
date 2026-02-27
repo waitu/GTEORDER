@@ -120,6 +120,11 @@ export const OrderDetailModal = ({ open, order, onClose, isLoading }: OrderDetai
           {detailRow('User email', order?.user?.email ?? undefined)}
         </div>
 
+        <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50 p-4 text-sm">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Event Summaries</p>
+          <p className="mt-2 whitespace-pre-wrap text-sm text-slate-700">{(order?.adminNote ?? order?.internalNotes ?? '').trim() || '—'}</p>
+        </div>
+
         <div className="mt-6 grid gap-4 md:grid-cols-2">
           <div className="rounded-xl border border-slate-100 bg-slate-50 p-4 text-sm">
             <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Result</p>

@@ -39,6 +39,7 @@ const DESIGN_SUBTYPE_LABELS = DESIGN_SUBTYPE_OPTIONS.filter((opt) => !opt.value.
   acc[opt.value] = opt.label;
   return acc;
 }, {});
+const EXPORT_PAGE_SIZE = 200;
 type OrdersView = 'standard' | 'design';
 
 type StandardOrdersMode = 'active_tracking' | 'empty_package';
@@ -66,6 +67,7 @@ const OrdersPageBase = ({ view }: { view: OrdersView }) => {
   const [exportOpen, setExportOpen] = useState(false);
   const [exportFrom, setExportFrom] = useState('');
   const [exportTo, setExportTo] = useState('');
+  const [exportStatus, setExportStatus] = useState<OrderStatus | 'all'>('all');
   const [exportError, setExportError] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [payMessage, setPayMessage] = useState<string | null>(null);
@@ -202,50 +204,124 @@ const OrdersPageBase = ({ view }: { view: OrdersView }) => {
   const totalCount = data?.meta.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(totalCount / (data?.meta.limit ?? queryState.limit ?? DEFAULT_LIMIT)));
 
-  const handleExport = useCallback((range: { from: string; to: string }) => {
-    if (visibleOrders.length === 0) return;
-    setIsExporting(true);
-    try {
-      const fromDate = new Date(`${range.from}T00:00:00`);
-      const toDate = new Date(`${range.to}T23:59:59.999`);
-      const filtered = visibleOrders.filter((order) => {
-        const created = new Date(order.createdAt).getTime();
-        return created >= fromDate.getTime() && created <= toDate.getTime();
-      });
-      if (filtered.length === 0) {
-        setExportError('No orders found in the selected date range.');
+  const exportScope = useMemo<Pick<OrdersQueryParams, 'orderType' | 'designSubtype'>>(() => {
+    if (view === 'design') {
+      return {
+        orderType: 'design',
+        designSubtype: queryState.designSubtype,
+      };
+    }
+
+    return {
+      orderType: standardMode,
+      designSubtype: undefined,
+    };
+  }, [queryState.designSubtype, standardMode, view]);
+
+  const fetchAllOrdersForExport = useCallback(async (params: OrdersQueryParams) => {
+    let page = 1;
+    let total = Number.POSITIVE_INFINITY;
+    const collected: Order[] = [];
+
+    while (collected.length < total) {
+      const response = await fetchOrders({ ...params, page, limit: EXPORT_PAGE_SIZE });
+      const chunk = response.data ?? [];
+      total = response.meta?.total ?? chunk.length;
+      collected.push(...chunk);
+
+      if (chunk.length === 0 || chunk.length < EXPORT_PAGE_SIZE) {
+        break;
+      }
+
+      page += 1;
+    }
+
+    return collected;
+  }, []);
+
+  const triggerCsvDownload = useCallback((rows: Order[], fileSuffix: string) => {
+    const headers = ['Order ID', 'Order Type', 'Tracking Number', 'Order Status', 'Payment Status', 'Event Summaries', 'Created At'];
+    const body = rows.map((order) => [
+      order.id,
+      order.orderType,
+      order.trackingCode ?? '',
+      order.orderStatus,
+      order.paymentStatus,
+      (order.adminNote ?? order.internalNotes ?? '').trim(),
+      new Date(order.createdAt).toISOString(),
+    ]);
+    const escape = (value: string) => {
+      if (value.includes(',') || value.includes('"') || value.includes('\n')) {
+        return `"${value.replace(/"/g, '""')}"`;
+      }
+      return value;
+    };
+    const csv = [headers, ...body]
+      .map((row) => row.map((cell) => escape(String(cell ?? ''))).join(','))
+      .join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const stamp = new Date().toISOString().slice(0, 10);
+    a.href = url;
+    a.download = `orders_${fileSuffix}_${stamp}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, []);
+
+  const runExport = useCallback(async (mode: 'all' | 'date' | 'status') => {
+    setExportError(null);
+
+    if (mode === 'date') {
+      if (!exportFrom || !exportTo) {
+        setExportError('Please select both From and To dates.');
         return;
       }
-      const headers = ['Order ID', 'Order Type', 'Tracking Number', 'Order Status', 'Payment Status', 'Created At'];
-      const rows = filtered.map((order) => [
-        order.id,
-        order.orderType,
-        order.trackingCode ?? '',
-        order.orderStatus,
-        order.paymentStatus,
-        new Date(order.createdAt).toISOString(),
-      ]);
-      const escape = (value: string) => {
-        if (value.includes(',') || value.includes('"') || value.includes('\n')) {
-          return `"${value.replace(/"/g, '""')}"`;
-        }
-        return value;
+      if (new Date(exportFrom) > new Date(exportTo)) {
+        setExportError('From date must be before To date.');
+        return;
+      }
+    }
+
+    if (mode === 'status' && exportStatus === 'all') {
+      setExportError('Please select a status to export.');
+      return;
+    }
+
+    setIsExporting(true);
+    try {
+      const params: OrdersQueryParams = {
+        ...exportScope,
       };
-      const csv = [headers, ...rows]
-        .map((row) => row.map((cell) => escape(String(cell ?? ''))).join(','))
-        .join('\n');
-      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      const date = new Date().toISOString().slice(0, 10);
-      a.href = url;
-      a.download = `orders_${range.from}_to_${range.to}_${date}.csv`;
-      a.click();
-      URL.revokeObjectURL(url);
+
+      if (mode === 'date') {
+        params.from = exportFrom;
+        params.to = exportTo;
+      }
+
+      if (mode === 'status' && exportStatus !== 'all') {
+        params.orderStatus = exportStatus;
+      }
+
+      const exportedOrders = await fetchAllOrdersForExport(params);
+      if (exportedOrders.length === 0) {
+        setExportError('No orders found for selected export options.');
+        return;
+      }
+
+      const fileSuffix =
+        mode === 'all'
+          ? 'all'
+          : mode === 'date'
+            ? `date_${exportFrom}_to_${exportTo}`
+            : `status_${exportStatus}`;
+
+      triggerCsvDownload(exportedOrders, fileSuffix);
+      setExportOpen(false);
     } finally {
       setIsExporting(false);
     }
-  }, [visibleOrders]);
+  }, [exportFrom, exportScope, exportStatus, exportTo, fetchAllOrdersForExport, triggerCsvDownload]);
 
   const handleRowClick = useCallback((order: Order) => {
     setSelectedOrder(order);
@@ -388,18 +464,19 @@ const OrdersPageBase = ({ view }: { view: OrdersView }) => {
         <button
           type="button"
           className={`inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-semibold shadow-sm ${
-            visibleOrders.length === 0 || isExporting ? 'border-slate-200 text-slate-400' : 'border-slate-200 text-slate-800 hover:border-slate-300'
+            isExporting ? 'border-slate-200 text-slate-400' : 'border-slate-200 text-slate-800 hover:border-slate-300'
           }`}
           onClick={() => {
-            if (visibleOrders.length === 0 || isExporting) return;
+            if (isExporting) return;
             setExportError(null);
             setExportFrom(queryState.from ?? '');
             setExportTo(queryState.to ?? '');
+            setExportStatus(queryState.orderStatus ?? 'all');
             setExportOpen(true);
           }}
-          disabled={visibleOrders.length === 0 || isExporting}
+          disabled={isExporting}
         >
-          {isExporting ? 'Exporting…' : 'Export'}
+          {isExporting ? 'Exporting…' : 'Export orders'}
         </button>
 
         <button
@@ -481,9 +558,9 @@ const OrdersPageBase = ({ view }: { view: OrdersView }) => {
 
       {exportOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl">
             <h3 className="text-lg font-semibold text-ink">Export orders</h3>
-            <p className="mt-1 text-sm text-slate-600">Choose a date range to export orders.</p>
+            <p className="mt-1 text-sm text-slate-600">Choose export options. Data is exported from all pages (only your own orders).</p>
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
                 From
@@ -503,9 +580,24 @@ const OrdersPageBase = ({ view }: { view: OrdersView }) => {
                   onChange={(event) => setExportTo(event.target.value)}
                 />
               </label>
+              <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Status
+                <select
+                  className="rounded-md border border-slate-200 px-3 py-2 text-sm capitalize"
+                  value={exportStatus}
+                  onChange={(event) => setExportStatus(event.target.value as OrderStatus | 'all')}
+                >
+                  <option value="all">All statuses</option>
+                  {ORDER_STATUSES.map((status) => (
+                    <option key={status} value={status}>
+                      {status}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
             {exportError && <p className="mt-3 text-sm text-rose-700">{exportError}</p>}
-            <div className="mt-6 flex justify-end gap-3">
+            <div className="mt-6 flex flex-wrap justify-end gap-2">
               <button
                 type="button"
                 className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
@@ -515,25 +607,27 @@ const OrdersPageBase = ({ view }: { view: OrdersView }) => {
               </button>
               <button
                 type="button"
-                className={`rounded-lg px-4 py-2 text-sm font-semibold text-white ${
-                  exportFrom && exportTo ? 'bg-ink hover:bg-slate-900' : 'bg-slate-400'
-                }`}
-                onClick={() => {
-                  if (!exportFrom || !exportTo) {
-                    setExportError('Please select both From and To dates.');
-                    return;
-                  }
-                  if (new Date(exportFrom) > new Date(exportTo)) {
-                    setExportError('From date must be before To date.');
-                    return;
-                  }
-                  setExportError(null);
-                  setExportOpen(false);
-                  handleExport({ from: exportFrom, to: exportTo });
-                }}
-                disabled={!exportFrom || !exportTo || isExporting}
+                className="rounded-lg bg-slate-800 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-900 disabled:bg-slate-400"
+                onClick={() => void runExport('all')}
+                disabled={isExporting}
               >
-                Export
+                Export all
+              </button>
+              <button
+                type="button"
+                className="rounded-lg bg-ink px-4 py-2 text-sm font-semibold text-white hover:bg-slate-900 disabled:bg-slate-400"
+                onClick={() => void runExport('date')}
+                disabled={isExporting}
+              >
+                Export by date
+              </button>
+              <button
+                type="button"
+                className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:bg-slate-400"
+                onClick={() => void runExport('status')}
+                disabled={isExporting}
+              >
+                Export by status
               </button>
             </div>
           </div>

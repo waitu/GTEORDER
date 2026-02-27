@@ -286,6 +286,20 @@ export function buildDefaultOrderColumns<T extends Order = Order>(options?: {
       header: 'Payment Status',
       render: (order) => paymentStatusBadge(order.paymentStatus),
     },
+    {
+      key: 'eventSummaries',
+      header: 'Event Summaries',
+      render: (order) => {
+        const summary = (order.adminNote ?? order.internalNotes ?? '').trim();
+        return summary ? (
+          <span className="line-clamp-2 max-w-[260px] text-xs text-slate-700" title={summary}>
+            {summary}
+          </span>
+        ) : (
+          <span className="text-xs text-slate-400">—</span>
+        );
+      },
+    },
   );
 
   if (showAssets) {
