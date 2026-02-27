@@ -70,6 +70,15 @@ const extractDomain = (url?: string | null) => {
   }
 };
 
+const copyText = async (value: string) => {
+  if (!value.trim()) return;
+  try {
+    await navigator.clipboard.writeText(value);
+  } catch (error) {
+    // no-op if clipboard is unavailable
+  }
+};
+
 
 const resolvePrimaryUrl = (order: Order, source: 'label' | 'result') => {
   const candidates = source === 'result'
@@ -226,7 +235,22 @@ export function buildDefaultOrderColumns<T extends Order = Order>(options?: {
     cols.push({
       key: 'trackingCode',
       header: 'Tracking Code',
-      render: (order) => (order.trackingCode ? <span className="font-mono text-base font-semibold text-slate-900">{order.trackingCode}</span> : <span className="text-slate-400">—</span>),
+      render: (order) =>
+        order.trackingCode ? (
+          <button
+            type="button"
+            className="font-mono text-base font-semibold text-slate-900 underline-offset-4 hover:text-slate-600 hover:underline"
+            title="Click to copy tracking"
+            onClick={(event) => {
+              event.stopPropagation();
+              void copyText(order.trackingCode ?? '');
+            }}
+          >
+            {order.trackingCode}
+          </button>
+        ) : (
+          <span className="text-slate-400">—</span>
+        ),
     });
   }
 

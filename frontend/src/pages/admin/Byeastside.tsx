@@ -100,15 +100,31 @@ export const AdminByeastsidePage = () => {
 
   const renderHistoryResult = (row: ByeastsideSyncHistoryItem) => {
     if (row.status === 'failed') {
-      return <span className="text-rose-600">{row.errorMessage ?? 'Sync failed'}</span>;
+      return (
+        <div className="space-y-1 text-xs">
+          <div className="font-semibold text-rose-600">{row.errorMessage ?? 'Sync failed'}</div>
+        </div>
+      );
     }
     if (!row.result) {
       return <span className="text-slate-500">No result payload</span>;
     }
+    const statusText = Object.entries(row.result.statusCounts ?? {})
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 4)
+      .map(([status, count]) => `${status}:${formatCount(count)}`)
+      .join(' · ');
+
     return (
-      <span className="text-slate-700">
-        PDFs {formatCount(row.result.pdfsProcessed)} · Labels {formatCount(row.result.labelsScanned)} · Updated {formatCount(row.result.ordersUpdated)}
-      </span>
+      <div className="space-y-1 text-xs text-slate-700">
+        <div>
+          PDFs {formatCount(row.result.pdfsProcessed)} · Labels {formatCount(row.result.labelsScanned)} · Updated {formatCount(row.result.ordersUpdated)}
+        </div>
+        <div>
+          Skipped unpaid {formatCount(row.result.ordersSkippedUnpaid)} · Not found {formatCount(row.result.ordersNotFound)}
+        </div>
+        {statusText && <div className="text-slate-500">Statuses: {statusText}</div>}
+      </div>
     );
   };
 
@@ -297,7 +313,10 @@ export const AdminByeastsidePage = () => {
                         </span>
                       </td>
                       <td className="px-3 py-2 text-slate-700">
-                        limit {row.settings?.limit ?? '—'} · page {row.settings?.page ?? '—'} · pageSize {row.settings?.pageSize ?? '—'}
+                        <div className="text-xs">
+                          <div>limit {row.settings?.limit ?? '—'} · page {row.settings?.page ?? '—'} · pageSize {row.settings?.pageSize ?? '—'}</div>
+                          <div className="text-slate-500">triggeredBy: {row.settings?.triggeredBy ?? 'system'}</div>
+                        </div>
                       </td>
                       <td className="px-3 py-2">{renderHistoryResult(row)}</td>
                     </tr>

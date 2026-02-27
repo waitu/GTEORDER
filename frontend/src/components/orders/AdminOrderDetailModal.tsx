@@ -139,6 +139,17 @@ export const AdminOrderDetailModal = ({
         </div>
 
         <div className="mt-4 grid gap-4 md:grid-cols-2">
+          <div className="rounded-xl border border-slate-100 bg-slate-50 p-4 text-sm md:col-span-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Tracking</p>
+            {order?.trackingCode ? (
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <span className="font-mono text-base font-semibold text-slate-900">{order.trackingCode}</span>
+              </div>
+            ) : (
+              <p className="mt-2 text-slate-500">No tracking code.</p>
+            )}
+          </div>
+
           <div className="rounded-xl border border-slate-100 bg-slate-50 p-4 text-sm">
             <div className="flex items-center justify-between">
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Status</p>

@@ -67,6 +67,15 @@ const coerceNumber = (value: string | null, fallback: number): number => {
 
 const detailQueryKey = (id: string) => ['admin', 'orders', 'detail', id] as const;
 
+const copyText = async (value: string) => {
+  if (!value.trim()) return;
+  try {
+    await navigator.clipboard.writeText(value);
+  } catch (error) {
+    // no-op if clipboard is unavailable
+  }
+};
+
 export const AdminOrdersPage = () => {
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -298,7 +307,24 @@ export const AdminOrdersPage = () => {
       {
         key: 'trackingCode',
         header: 'Tracking',
-        render: (order) => (order.orderType === 'design' ? <span className="text-xs text-slate-400">—</span> : <span className="font-mono text-sm text-slate-900">{order.trackingCode ?? '—'}</span>),
+        render: (order) =>
+          order.orderType === 'design' ? (
+            <span className="text-xs text-slate-400">—</span>
+          ) : order.trackingCode ? (
+            <button
+              type="button"
+              className="font-mono text-sm text-slate-900 underline-offset-4 hover:text-slate-600 hover:underline"
+              title="Click to copy tracking"
+              onClick={(event) => {
+                event.stopPropagation();
+                void copyText(order.trackingCode ?? '');
+              }}
+            >
+              {order.trackingCode}
+            </button>
+          ) : (
+            <span className="text-xs text-slate-400">—</span>
+          ),
       },
       {
         key: 'totalCost',
@@ -802,7 +828,7 @@ export const AdminOrdersPage = () => {
           onClick={bulkStart}
           disabled={!canBulkStart || bulkStartMutation.isLoading}
         >
-          Start selected
+          Start Processing
         </button>
         <button
           className="rounded-lg border border-slate-200 px-3 py-1 text-sm"
