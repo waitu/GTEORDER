@@ -161,7 +161,9 @@ export class BarcodesService {
     const seen = new Set<string>();
 
     for (const raw of input) {
-      const code = String(raw ?? '').trim();
+      const code = String(raw ?? '')
+        .trim()
+        .replace(/\s+/g, '');
       if (!code) continue;
 
       if (!/^\d+$/.test(code)) {
@@ -188,9 +190,10 @@ export class BarcodesService {
   parseTextBody(body: unknown): string[] {
     const raw = typeof body === 'string' ? body : '';
     return raw
-      .split(/\r?\n/)
+      .split(/\r?\n|,|;/)
       .map((line) => line.trim())
-      .filter(Boolean);
+      .filter(Boolean)
+      .map((line) => line.replace(/\s+/g, ''));
   }
 
   private async ensureOutputDir(): Promise<void> {

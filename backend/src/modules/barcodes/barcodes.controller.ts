@@ -81,9 +81,10 @@ export class BarcodesController {
 
     const payload = text.replace(/^\/barcode(@\w+)?/i, '').trim();
     const codes = payload
-      .split(/[\s,\n\r]+/)
+      .split(/\r?\n|,|;/)
       .map((item) => item.trim())
-      .filter(Boolean);
+      .filter(Boolean)
+      .map((item) => item.replace(/\s+/g, ''));
 
     const chatId = String(message.chat.id);
     const threadId = typeof message.message_thread_id === 'number' ? message.message_thread_id : undefined;
