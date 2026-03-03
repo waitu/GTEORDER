@@ -2,11 +2,14 @@ import 'reflect-metadata';
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
+import { text } from 'express';
 
 import { AppModule } from './modules/app.module.js';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
+
+  app.use(text({ type: 'text/plain', limit: '1mb' }));
 
   // Dev CORS: allow localhost ports (vite may auto-pick 5174+ if 5173 is busy)
   const isProd = (process.env.NODE_ENV ?? 'development') === 'production';

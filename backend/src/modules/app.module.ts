@@ -19,6 +19,7 @@ import { BillingModule } from './billing/billing.module.js';
 import { LabelsModule } from './labels/labels.module.js';
 import { PricingModule } from './pricing/pricing.module.js';
 import { CreditModule } from './credit/credit.module.js';
+import { BarcodesModule } from './barcodes/barcodes.module.js';
 
 @Module({
   imports: [
@@ -38,6 +39,7 @@ import { CreditModule } from './credit/credit.module.js';
     BillingModule,
     PricingModule,
     CreditModule,
+    BarcodesModule,
     UsersModule,
     AuthModule,
     OtpModule,

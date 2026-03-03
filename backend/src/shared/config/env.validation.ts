@@ -45,4 +45,9 @@ export const envValidationSchema = Joi.object({
   BYEASTSIDE_CRON: Joi.string().optional(),
   BYEASTSIDE_RUN_ON_START: Joi.boolean().default(false),
   BYEASTSIDE_EXIT_AFTER_RUN: Joi.boolean().default(false),
+
+  OUTPUT_DIR: Joi.string().default('./storage/barcodes/output'),
+  BASE_URL: Joi.string().uri().optional(),
+  MAX_CODES: Joi.number().integer().min(1).max(2000).default(500),
+  TELEGRAM_BOT_TOKEN: Joi.string().optional(),
 });
