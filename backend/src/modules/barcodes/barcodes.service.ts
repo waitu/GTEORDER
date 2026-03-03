@@ -496,7 +496,8 @@ export class BarcodesService {
     const filePath = path.join(this.outputDir, pdfFileName);
     const fileBuffer = await readFile(filePath);
     const form = new FormData();
-    form.set('file', new Blob([fileBuffer]), pdfFileName);
+    const uploadName = pdfFileName.toLowerCase().endsWith('.pdf') ? pdfFileName : `${pdfFileName}.pdf`;
+    form.set('file', new Blob([fileBuffer], { type: 'application/pdf' }), uploadName);
 
     const response = await fetch(this.byeastsideUploadUrl, {
       method: 'POST',
