@@ -424,13 +424,13 @@ export class BarcodesService {
   async handleUploadDecisionFromCallback(input: {
     callbackQueryId: string;
     callbackData: string;
-    chatId: string;
     messageThreadId?: number;
   }): Promise<{ status: 'uploaded' | 'skipped' | 'expired'; upload?: unknown }> {
     const yesPrefix = 'byeastside_upload_yes:';
     const noPrefix = 'byeastside_upload_no:';
 
     if (!input.callbackData.startsWith(yesPrefix) && !input.callbackData.startsWith(noPrefix)) {
+      await this.answerCallbackQuery(input.callbackQueryId, 'Thao tác không hợp lệ.');
       return { status: 'expired' };
     }
 
@@ -440,16 +440,6 @@ export class BarcodesService {
 
     if (!pending) {
       await this.answerCallbackQuery(input.callbackQueryId, 'Yêu cầu đã hết hạn hoặc không tồn tại.');
-      await this.sendTextToTelegram({
-        chatId: input.chatId,
-        messageThreadId: input.messageThreadId,
-        text: 'Yêu cầu upload đã hết hạn. Vui lòng chạy lại /barcode.',
-      });
-      return { status: 'expired' };
-    }
-
-    if (pending.chatId !== input.chatId) {
-      await this.answerCallbackQuery(input.callbackQueryId, 'Bạn không thể thao tác yêu cầu này.');
       return { status: 'expired' };
     }
 
@@ -458,7 +448,7 @@ export class BarcodesService {
       await this.answerCallbackQuery(input.callbackQueryId, 'Đã bỏ qua upload BYEASTSIDE.');
       await this.sendTextToTelegram({
         chatId: pending.chatId,
-        messageThreadId: pending.messageThreadId,
+        messageThreadId: input.messageThreadId ?? pending.messageThreadId,
         text: 'Đã hủy upload file PDF lên BYEASTSIDE.',
       });
       return { status: 'skipped' };
@@ -474,7 +464,7 @@ export class BarcodesService {
 
       await this.sendTextToTelegram({
         chatId: pending.chatId,
-        messageThreadId: pending.messageThreadId,
+        messageThreadId: input.messageThreadId ?? pending.messageThreadId,
         text:
           `Đã upload PDF lên BYEASTSIDE thành công.\n` +
           `Tổng barcode: ${pending.total}\n` +
@@ -488,7 +478,7 @@ export class BarcodesService {
       await this.answerCallbackQuery(input.callbackQueryId, 'Upload thất bại.');
       await this.sendTextToTelegram({
         chatId: pending.chatId,
-        messageThreadId: pending.messageThreadId,
+        messageThreadId: input.messageThreadId ?? pending.messageThreadId,
         text: `Upload BYEASTSIDE thất bại: ${error?.message ?? 'Unknown error'}`,
       });
       return { status: 'expired' };
