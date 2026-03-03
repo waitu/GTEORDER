@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, InternalServerErrorException } from '@nestjs/common';
+import { BadRequestException, Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -41,6 +41,8 @@ export type BarcodeResponse = {
 @Injectable()
 export class BarcodesService {
   constructor(private readonly config: ConfigService) {}
+
+  private readonly logger = new Logger(BarcodesService.name);
 
   private readonly pendingUploads = new Map<string, PendingUploadItem>();
 
@@ -515,7 +517,8 @@ export class BarcodesService {
   async answerCallbackQuery(callbackQueryId: string, text?: string): Promise<void> {
     const token = this.config.get<string>('TELEGRAM_BOT_TOKEN');
     if (!token) {
-      throw new BadRequestException('Missing TELEGRAM_BOT_TOKEN');
+      this.logger.warn('Skip answerCallbackQuery because TELEGRAM_BOT_TOKEN is missing');
+      return;
     }
 
     const payload: Record<string, unknown> = {
@@ -527,15 +530,19 @@ export class BarcodesService {
       payload.show_alert = false;
     }
 
-    const response = await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
+    try {
+      const response = await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
 
-    if (!response.ok) {
-      const detail = await response.text();
-      throw new BadRequestException(`Telegram answerCallbackQuery failed: ${response.status} ${detail}`);
+      if (!response.ok) {
+        const detail = await response.text();
+        this.logger.warn(`Telegram answerCallbackQuery failed: ${response.status} ${detail}`);
+      }
+    } catch (error: any) {
+      this.logger.warn(`Telegram answerCallbackQuery fetch failed: ${error?.message ?? 'Unknown error'}`);
     }
   }
 
