@@ -38,6 +38,7 @@ export const envValidationSchema = Joi.object({
 
   BYEASTSIDE_API_KEY: Joi.string().optional(),
   BYEASTSIDE_API_BASE: Joi.string().uri().default('https://byeastside.uk/api/customer/pdfs'),
+  BYEASTSIDE_UPLOAD_URL: Joi.string().uri().optional(),
   BYEASTSIDE_LABELS_BASE: Joi.string().uri().default('https://api-label-scan.aletech.co/api/customer/pdfs'),
   BYEASTSIDE_PAGE_SIZE: Joi.number().integer().min(1).max(100).default(10),
   BYEASTSIDE_SYNC_LIMIT: Joi.number().integer().min(1).max(200).default(10),

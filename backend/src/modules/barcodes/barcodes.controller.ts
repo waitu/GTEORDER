@@ -49,6 +49,24 @@ export class BarcodesController {
 
   @Post('telegram/webhook')
   async telegramWebhook(@Body() update: any) {
+    const callbackQuery = update?.callback_query;
+    if (callbackQuery?.id && callbackQuery?.data && callbackQuery?.message?.chat?.id) {
+      const callbackChatId = String(callbackQuery.message.chat.id);
+      const callbackThreadId =
+        typeof callbackQuery.message.message_thread_id === 'number'
+          ? callbackQuery.message.message_thread_id
+          : undefined;
+
+      const callbackResult = await this.barcodesService.handleUploadDecisionFromCallback({
+        callbackQueryId: String(callbackQuery.id),
+        callbackData: String(callbackQuery.data),
+        chatId: callbackChatId,
+        messageThreadId: callbackThreadId,
+      });
+
+      return { ok: true, status: 'callback-processed', result: callbackResult };
+    }
+
     const message = update?.message ?? update?.edited_message;
     if (!message?.text || !message?.chat?.id) {
       return { ok: true, ignored: 'no-message-text' };

@@ -5,6 +5,24 @@ import path from 'node:path';
 import bwipjs from 'bwip-js';
 import PDFDocument from 'pdfkit';
 
+type PendingUploadItem = {
+  chatId: string;
+  messageThreadId?: number;
+  pdfFileName: string;
+  total: number;
+  firstTail: string;
+  lastTail: string;
+  createdAt: number;
+};
+
+type ByeastsideUploadResponse = {
+  id?: number;
+  name?: string;
+  status?: string;
+  publicUrl?: string;
+  createdAt?: string;
+};
+
 export type BarcodeResultItem = {
   code: string;
   status: 'success' | 'failed';
@@ -24,6 +42,28 @@ export type BarcodeResponse = {
 export class BarcodesService {
   constructor(private readonly config: ConfigService) {}
 
+  private readonly pendingUploads = new Map<string, PendingUploadItem>();
+
+  private getPngDimensions(buffer: Buffer): { width: number; height: number } {
+    if (buffer.length < 24) {
+      throw new Error('Invalid PNG data');
+    }
+
+    const pngSignature = '89504e470d0a1a0a';
+    const signature = buffer.subarray(0, 8).toString('hex');
+    if (signature !== pngSignature) {
+      throw new Error('Unsupported image format');
+    }
+
+    const width = buffer.readUInt32BE(16);
+    const height = buffer.readUInt32BE(20);
+    if (!width || !height) {
+      throw new Error('Invalid PNG dimensions');
+    }
+
+    return { width, height };
+  }
+
   private get outputDir(): string {
     const configured = this.config.get<string>('OUTPUT_DIR') || './storage/barcodes/output';
     return path.resolve(configured);
@@ -36,6 +76,76 @@ export class BarcodesService {
 
   private get maxCodes(): number {
     return this.config.get<number>('MAX_CODES') ?? 500;
+  }
+
+  private get byeastsideUploadUrl(): string {
+    const configured = this.config.get<string>('BYEASTSIDE_UPLOAD_URL');
+    if (configured && configured.trim()) {
+      return configured.trim();
+    }
+
+    const base = this.config
+      .get<string>('BYEASTSIDE_API_BASE', 'https://byeastside.uk/api/customer/pdfs')
+      .replace(/\/$/, '');
+    return `${base}/upload`;
+  }
+
+  private prunePendingUploads(): void {
+    const ttlMs = 10 * 60 * 1000;
+    const now = Date.now();
+
+    for (const [key, value] of this.pendingUploads.entries()) {
+      if (now - value.createdAt > ttlMs) {
+        this.pendingUploads.delete(key);
+      }
+    }
+  }
+
+  private createPendingUploadId(): string {
+    return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+  }
+
+  private buildBarcodeSummary(codes: string[]): { total: number; firstTail: string; lastTail: string } {
+    const total = codes.length;
+    const first = total > 0 ? codes[0] : '';
+    const last = total > 0 ? codes[total - 1] : '';
+    return {
+      total,
+      firstTail: first.slice(-2),
+      lastTail: last.slice(-2),
+    };
+  }
+
+  private formatToHoChiMinhTime(value?: string): string {
+    if (!value) return '(không có)';
+
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      return value;
+    }
+
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Ho_Chi_Minh',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    }).formatToParts(date);
+
+    const getPart = (type: Intl.DateTimeFormatPartTypes) =>
+      parts.find((part) => part.type === type)?.value ?? '';
+
+    const hh = getPart('hour');
+    const mm = getPart('minute');
+    const ss = getPart('second');
+    const dd = getPart('day');
+    const mo = getPart('month');
+    const yyyy = getPart('year');
+
+    return `${hh}:${mm}:${ss} - ${dd}/${mo}/${yyyy} (GMT+7)`;
   }
 
   private buildFileUrl(fileName: string): string {
@@ -91,7 +201,7 @@ export class BarcodesService {
     const filePath = path.join(this.outputDir, fileName);
 
     await new Promise<void>(async (resolve, reject) => {
-      const doc = new PDFDocument({ autoFirstPage: false, size: 'A4', margin: 36 });
+      const doc = new PDFDocument({ autoFirstPage: false });
       const chunks: Buffer[] = [];
 
       doc.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
@@ -118,12 +228,22 @@ export class BarcodesService {
             backgroundcolor: 'FFFFFF',
           });
 
-          doc.addPage();
-          doc.fontSize(14).text(`Barcode: ${code}`, { align: 'center' });
-          const maxWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
-          doc.image(pngBuffer, doc.page.margins.left, 100, {
-            fit: [maxWidth, 300],
-            align: 'center',
+          const image = this.getPngDimensions(pngBuffer);
+          const horizontalPadding = 18;
+          const topPadding = 14;
+          const bottomPadding = 16;
+
+          const pageWidth = image.width + horizontalPadding * 2;
+          const pageHeight = topPadding + image.height + bottomPadding;
+
+          doc.addPage({
+            size: [pageWidth, pageHeight],
+            margins: { top: 0, bottom: 0, left: 0, right: 0 },
+          });
+
+          doc.image(pngBuffer, horizontalPadding, topPadding, {
+            width: image.width,
+            height: image.height,
           });
         }
         doc.end();
@@ -222,11 +342,211 @@ export class BarcodesService {
     }
 
     const telegramResult = await response.json();
+
+    const successCodes = successful.map((item) => item.code);
+    const summary = this.buildBarcodeSummary(successCodes);
+    const pendingId = this.createPendingUploadId();
+
+    this.prunePendingUploads();
+    this.pendingUploads.set(pendingId, {
+      chatId: input.chatId,
+      messageThreadId: input.messageThreadId,
+      pdfFileName: documentFileName,
+      total: summary.total,
+      firstTail: summary.firstTail,
+      lastTail: summary.lastTail,
+      createdAt: Date.now(),
+    });
+
+    await this.sendUploadPromptToTelegram({
+      chatId: input.chatId,
+      messageThreadId: input.messageThreadId,
+      total: summary.total,
+      firstTail: summary.firstTail,
+      lastTail: summary.lastTail,
+      pendingId,
+    });
+
     return {
       status: 'sent',
       telegram: telegramResult,
       payload,
     };
+  }
+
+  private async sendUploadPromptToTelegram(input: {
+    chatId: string;
+    messageThreadId?: number;
+    total: number;
+    firstTail: string;
+    lastTail: string;
+    pendingId: string;
+  }): Promise<void> {
+    const token = this.config.get<string>('TELEGRAM_BOT_TOKEN');
+    if (!token) {
+      throw new BadRequestException('Missing TELEGRAM_BOT_TOKEN');
+    }
+
+    const payload: Record<string, unknown> = {
+      chat_id: input.chatId,
+      text:
+        `Đã tạo ${input.total} barcode.\n` +
+        `2 số cuối barcode đầu tiên: ${input.firstTail}\n` +
+        `2 số cuối barcode cuối cùng: ${input.lastTail}\n\n` +
+        'Bạn có muốn upload file PDF này lên BYEASTSIDE không?',
+      disable_web_page_preview: true,
+      reply_markup: {
+        inline_keyboard: [
+          [
+            { text: 'Có', callback_data: `byeastside_upload_yes:${input.pendingId}` },
+            { text: 'Không', callback_data: `byeastside_upload_no:${input.pendingId}` },
+          ],
+        ],
+      },
+    };
+
+    if (typeof input.messageThreadId === 'number') {
+      payload.message_thread_id = input.messageThreadId;
+    }
+
+    const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const detail = await response.text();
+      throw new BadRequestException(`Telegram sendMessage failed: ${response.status} ${detail}`);
+    }
+  }
+
+  async handleUploadDecisionFromCallback(input: {
+    callbackQueryId: string;
+    callbackData: string;
+    chatId: string;
+    messageThreadId?: number;
+  }): Promise<{ status: 'uploaded' | 'skipped' | 'expired'; upload?: unknown }> {
+    const yesPrefix = 'byeastside_upload_yes:';
+    const noPrefix = 'byeastside_upload_no:';
+
+    if (!input.callbackData.startsWith(yesPrefix) && !input.callbackData.startsWith(noPrefix)) {
+      return { status: 'expired' };
+    }
+
+    const isYes = input.callbackData.startsWith(yesPrefix);
+    const pendingId = input.callbackData.slice((isYes ? yesPrefix : noPrefix).length);
+    const pending = this.pendingUploads.get(pendingId);
+
+    if (!pending) {
+      await this.answerCallbackQuery(input.callbackQueryId, 'Yêu cầu đã hết hạn hoặc không tồn tại.');
+      await this.sendTextToTelegram({
+        chatId: input.chatId,
+        messageThreadId: input.messageThreadId,
+        text: 'Yêu cầu upload đã hết hạn. Vui lòng chạy lại /barcode.',
+      });
+      return { status: 'expired' };
+    }
+
+    if (pending.chatId !== input.chatId) {
+      await this.answerCallbackQuery(input.callbackQueryId, 'Bạn không thể thao tác yêu cầu này.');
+      return { status: 'expired' };
+    }
+
+    if (!isYes) {
+      this.pendingUploads.delete(pendingId);
+      await this.answerCallbackQuery(input.callbackQueryId, 'Đã bỏ qua upload BYEASTSIDE.');
+      await this.sendTextToTelegram({
+        chatId: pending.chatId,
+        messageThreadId: pending.messageThreadId,
+        text: 'Đã hủy upload file PDF lên BYEASTSIDE.',
+      });
+      return { status: 'skipped' };
+    }
+
+    try {
+      const uploadResult = await this.uploadPdfToByeastside(pending.pdfFileName);
+      this.pendingUploads.delete(pendingId);
+      await this.answerCallbackQuery(input.callbackQueryId, 'Upload BYEASTSIDE thành công.');
+
+      const publicUrlText = uploadResult.publicUrl ?? '(không có)';
+      const createdAtText = this.formatToHoChiMinhTime(uploadResult.createdAt);
+
+      await this.sendTextToTelegram({
+        chatId: pending.chatId,
+        messageThreadId: pending.messageThreadId,
+        text:
+          `Đã upload PDF lên BYEASTSIDE thành công.\n` +
+          `Tổng barcode: ${pending.total}\n` +
+          `2 số cuối đầu tiên: ${pending.firstTail}\n` +
+          `2 số cuối cuối cùng: ${pending.lastTail}\n` +
+          `Public URL: ${publicUrlText}\n` +
+          `Created At: ${createdAtText}`,
+      });
+      return { status: 'uploaded', upload: uploadResult };
+    } catch (error: any) {
+      await this.answerCallbackQuery(input.callbackQueryId, 'Upload thất bại.');
+      await this.sendTextToTelegram({
+        chatId: pending.chatId,
+        messageThreadId: pending.messageThreadId,
+        text: `Upload BYEASTSIDE thất bại: ${error?.message ?? 'Unknown error'}`,
+      });
+      return { status: 'expired' };
+    }
+  }
+
+  private async uploadPdfToByeastside(pdfFileName: string): Promise<ByeastsideUploadResponse> {
+    const apiKey = this.config.get<string>('BYEASTSIDE_API_KEY');
+    if (!apiKey) {
+      throw new BadRequestException('Missing BYEASTSIDE_API_KEY');
+    }
+
+    const filePath = path.join(this.outputDir, pdfFileName);
+    const fileBuffer = await readFile(filePath);
+    const form = new FormData();
+    form.set('file', new Blob([fileBuffer]), pdfFileName);
+
+    const response = await fetch(this.byeastsideUploadUrl, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: form,
+    });
+
+    if (!response.ok) {
+      const detail = await response.text();
+      throw new BadRequestException(`BYEASTSIDE upload failed: ${response.status} ${detail}`);
+    }
+
+    return response.json() as Promise<ByeastsideUploadResponse>;
+  }
+
+  async answerCallbackQuery(callbackQueryId: string, text?: string): Promise<void> {
+    const token = this.config.get<string>('TELEGRAM_BOT_TOKEN');
+    if (!token) {
+      throw new BadRequestException('Missing TELEGRAM_BOT_TOKEN');
+    }
+
+    const payload: Record<string, unknown> = {
+      callback_query_id: callbackQueryId,
+    };
+
+    if (text) {
+      payload.text = text;
+      payload.show_alert = false;
+    }
+
+    const response = await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const detail = await response.text();
+      throw new BadRequestException(`Telegram answerCallbackQuery failed: ${response.status} ${detail}`);
+    }
   }
 
   async sendTextToTelegram(input: { chatId: string; messageThreadId?: number; text: string }): Promise<void> {
