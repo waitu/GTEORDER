@@ -29,6 +29,7 @@ import { SystemLogsPage } from './pages/admin/SystemLogs';
 import { AdminOrdersPage } from './pages/admin/Orders';
 import { AdminByeastsidePage } from './pages/admin/Byeastside';
 import { AuthProvider } from './context/AuthProvider';
+import { ToastProvider } from './context/ToastProvider';
 import { ProtectedRoute, AdminRoute, GuestRoute, OtpRoute } from './components/ProtectedRoute';
 
 const queryClient = new QueryClient();
@@ -91,7 +92,9 @@ const root = existingRoot ?? ReactDOM.createRoot(container);
 root.render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
+      <ToastProvider>
+        <RouterProvider router={router} />
+      </ToastProvider>
     </QueryClientProvider>
   </React.StrictMode>,
 );

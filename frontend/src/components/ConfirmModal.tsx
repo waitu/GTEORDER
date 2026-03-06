@@ -5,6 +5,7 @@ type ConfirmModalProps = {
   open: boolean;
   title: string;
   description?: ReactNode;
+  extraContent?: ReactNode;
   confirmLabel?: string;
   cancelLabel?: string;
   onConfirm: () => void;
@@ -16,6 +17,7 @@ export const ConfirmModal = ({
   open,
   title,
   description,
+  extraContent,
   confirmLabel = 'Confirm',
   cancelLabel = 'Cancel',
   onConfirm,
@@ -28,6 +30,7 @@ export const ConfirmModal = ({
       <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl">
         <h3 className="text-lg font-semibold text-ink">{title}</h3>
         {description && <div className="mt-2 text-sm text-slate-600 whitespace-pre-line">{description}</div>}
+        {extraContent ? <div className="mt-3">{extraContent}</div> : null}
         <div className="mt-6 flex justify-end gap-3 text-sm font-semibold">
           <button
             className="rounded-lg border border-slate-200 px-4 py-2 text-slate-700 hover:bg-slate-50"

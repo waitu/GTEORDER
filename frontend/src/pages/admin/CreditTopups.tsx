@@ -3,8 +3,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AdminLayout } from '../../components/AdminLayout';
 import { ConfirmModal } from '../../components/ConfirmModal';
 import { RejectModal } from '../../components/RejectModal';
-import { AlertModal } from '../../components/AlertModal';
 import { fetchAdminCreditTopups, approveCreditTopup, rejectCreditTopup, AdminCreditTopup, CreditTopupStatus } from '../../api/admin';
+import { useToast } from '../../context/ToastProvider';
 
 const formatTime = (value?: string | null) => {
   if (!value) return '—';
@@ -31,7 +31,7 @@ export const AdminCreditTopupsPage = () => {
   const [q, setQ] = useState('');
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(50);
-  const [alert, setAlert] = useState<{ open: boolean; title: string; message: string } | null>(null);
+  const { showToast } = useToast();
 
   const { data, isLoading, isError, isFetching } = useQuery({
     queryKey: ['admin', 'credit-topups', status, q, page, limit],
@@ -43,11 +43,11 @@ export const AdminCreditTopupsPage = () => {
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['admin', 'credit-topups'], exact: false });
       await queryClient.invalidateQueries({ queryKey: ['balance'], exact: false });
-      setAlert({ open: true, title: 'Approved', message: 'Top-up approved and credits were added.' });
+      showToast({ type: 'success', title: 'Approved', message: 'Top-up approved and credits were added.' });
     },
     onError: (err: any) => {
       const msg = err?.response?.data?.message ?? err?.message ?? 'Approve failed';
-      setAlert({ open: true, title: 'Approve failed', message: Array.isArray(msg) ? msg.join(', ') : String(msg) });
+      showToast({ type: 'error', title: 'Approve failed', message: Array.isArray(msg) ? msg.join(', ') : String(msg) });
     },
   });
 
@@ -55,11 +55,11 @@ export const AdminCreditTopupsPage = () => {
     mutationFn: (params: { id: string; adminNote: string }) => rejectCreditTopup(params.id, params.adminNote),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['admin', 'credit-topups'], exact: false });
-      setAlert({ open: true, title: 'Rejected', message: 'Top-up request was rejected.' });
+      showToast({ type: 'success', title: 'Rejected', message: 'Top-up request was rejected.' });
     },
     onError: (err: any) => {
       const msg = err?.response?.data?.message ?? err?.message ?? 'Reject failed';
-      setAlert({ open: true, title: 'Reject failed', message: Array.isArray(msg) ? msg.join(', ') : String(msg) });
+      showToast({ type: 'error', title: 'Reject failed', message: Array.isArray(msg) ? msg.join(', ') : String(msg) });
     },
   });
 
@@ -268,13 +268,6 @@ export const AdminCreditTopupsPage = () => {
             },
           );
         }}
-      />
-
-      <AlertModal
-        open={!!alert?.open}
-        title={alert?.title ?? 'Notice'}
-        description={alert?.message ?? ''}
-        onClose={() => setAlert(null)}
       />
     </AdminLayout>
   );

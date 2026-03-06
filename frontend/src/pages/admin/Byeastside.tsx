@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AdminLayout } from '../../components/AdminLayout';
 import { Card } from '../../components/Card';
-import { AlertModal } from '../../components/AlertModal';
+import { useToast } from '../../context/ToastProvider';
 import {
   ByeastsideSettings,
   ByeastsideSyncHistoryItem,
@@ -29,7 +29,7 @@ export const AdminByeastsidePage = () => {
   const [lastResult, setLastResult] = useState<ByeastsideSyncResult | null>(null);
   const [historyPage, setHistoryPage] = useState(1);
   const historyLimit = 10;
-  const [alert, setAlert] = useState<{ title: string; message: string } | null>(null);
+  const { showToast } = useToast();
 
   const settingsQuery = useQuery({
     queryKey: ['admin', 'byeastside', 'settings'],
@@ -59,11 +59,11 @@ export const AdminByeastsidePage = () => {
     onSuccess: async (data) => {
       setForm(data);
       await queryClient.invalidateQueries({ queryKey: ['admin', 'byeastside', 'settings'] });
-      setAlert({ title: 'Saved', message: 'Settings updated successfully.' });
+      showToast({ type: 'success', title: 'Saved', message: 'Settings updated successfully.' });
     },
     onError: (err: any) => {
       const msg = err?.response?.data?.message ?? err?.message ?? 'Failed to save settings.';
-      setAlert({ title: 'Save failed', message: Array.isArray(msg) ? msg.join(', ') : String(msg) });
+      showToast({ type: 'error', title: 'Save failed', message: Array.isArray(msg) ? msg.join(', ') : String(msg) });
     },
   });
 
@@ -72,11 +72,11 @@ export const AdminByeastsidePage = () => {
     onSuccess: (data) => {
       setLastResult(data);
       queryClient.invalidateQueries({ queryKey: ['admin', 'byeastside', 'history'] });
-      setAlert({ title: 'Sync complete', message: 'Tracking data was refreshed.' });
+      showToast({ type: 'success', title: 'Sync complete', message: 'Tracking data was refreshed.' });
     },
     onError: (err: any) => {
       const msg = err?.response?.data?.message ?? err?.message ?? 'Sync failed.';
-      setAlert({ title: 'Sync failed', message: Array.isArray(msg) ? msg.join(', ') : String(msg) });
+      showToast({ type: 'error', title: 'Sync failed', message: Array.isArray(msg) ? msg.join(', ') : String(msg) });
     },
   });
 
@@ -354,13 +354,6 @@ export const AdminByeastsidePage = () => {
           </>
         )}
       </Card>
-
-      <AlertModal
-        open={!!alert}
-        title={alert?.title ?? ''}
-        description={alert?.message}
-        onClose={() => setAlert(null)}
-      />
     </AdminLayout>
   );
 };

@@ -27,6 +27,7 @@ import {
 } from '../../api/admin';
 import BulkFailModal from '../../components/admin/BulkFailModal';
 import { OrderStatus, OrdersQueryParams, PaymentStatus } from '../../api/orders';
+import { useToast } from '../../context/ToastProvider';
 
 const ORDER_TYPE_FILTERS = ['active_tracking', 'empty_package', 'design'] as const;
 const ORDER_STATUS_FILTERS = ['pending', 'processing', 'completed', 'failed'] as const;
@@ -71,15 +72,91 @@ const copyText = async (value: string) => {
   if (!value.trim()) return;
   try {
     await navigator.clipboard.writeText(value);
+    return true;
   } catch (error) {
     // no-op if clipboard is unavailable
+    return false;
   }
+};
+
+const normalizeTrackingCode = (value: unknown) =>
+  String(value ?? '')
+    .trim()
+    .replace(/\s+/g, '');
+
+const buildTrackingSummaryFromOrders = (orders: AdminOrder[]) => {
+  const codes = Array.from(
+    new Set(
+      orders
+        .map((order) => normalizeTrackingCode(order.trackingCode))
+        .filter((code) => code.length > 0),
+    ),
+  );
+
+  const total = codes.length;
+  const firstTail = total > 0 ? codes[0].slice(-2) : '(không có)';
+  const lastTail = total > 0 ? codes[total - 1].slice(-2) : '(không có)';
+  return { total, firstTail, lastTail };
+};
+
+const formatToHoChiMinhTime = (value?: string) => {
+  if (!value) return '(không có)';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Ho_Chi_Minh',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).formatToParts(date);
+
+  const getPart = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((part) => part.type === type)?.value ?? '';
+
+  return `${getPart('hour')}:${getPart('minute')}:${getPart('second')} - ${getPart('day')}/${getPart('month')}/${getPart('year')} (GMT+7)`;
+};
+
+const formatUploadInfoText = (upload?: {
+  id?: number;
+  name?: string;
+  status?: string;
+  publicUrl?: string;
+  createdAt?: string;
+}, orders: AdminOrder[] = []) => {
+  if (!upload) return '';
+
+  const summary = buildTrackingSummaryFromOrders(orders);
+  const lines = [
+    'Đã upload PDF lên BYEASTSIDE thành công.',
+    `Tổng barcode: ${summary.total}`,
+    `2 số cuối đầu tiên: ${summary.firstTail}`,
+    `2 số cuối cuối cùng: ${summary.lastTail}`,
+    `Public URL: ${upload.publicUrl ?? '(không có)'}`,
+    `Created At: ${formatToHoChiMinhTime(upload.createdAt)}`,
+  ];
+
+  if (upload.id != null) lines.push(`BYEASTSIDE ID: ${upload.id}`);
+  if (upload.name) lines.push(`File Name: ${upload.name}`);
+  if (upload.status) lines.push(`Upload Status: ${upload.status}`);
+  return lines.join('\n');
 };
 
 export const AdminOrdersPage = () => {
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [toast, setToast] = useState('');
+  const { showToast } = useToast();
+  const setToast = useCallback(
+    (message: string) => {
+      const isError = /failed|thất bại|error|could not|không thể/i.test(message);
+      showToast({ message, type: isError ? 'error' : 'success' });
+    },
+    [showToast],
+  );
   const [detailId, setDetailId] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
@@ -191,49 +268,60 @@ export const AdminOrdersPage = () => {
   };
 
   const statusMutation = useMutation({
-    mutationFn: ({ orderId, orderStatus }: { orderId: string; orderStatus: OrderStatus }) => updateAdminOrderStatus(orderId, orderStatus),
-    onSuccess: (order) => {
+    mutationFn: ({ orderId, orderStatus }: { orderId: string; orderStatus: OrderStatus; silentToast?: boolean }) =>
+      updateAdminOrderStatus(orderId, orderStatus),
+    onSuccess: (order, variables) => {
       patchOrderCaches(order);
-      setToast('Order status updated');
+      if (!variables?.silentToast) setToast('Order status updated');
     },
-    onError: () => setToast('Failed to update order status'),
+    onError: (_error, variables) => {
+      if (!variables?.silentToast) setToast('Failed to update order status');
+    },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ordersQueryKey });
     },
   });
 
   const paymentMutation = useMutation({
-    mutationFn: ({ orderId, paymentStatus }: { orderId: string; paymentStatus: PaymentStatus }) =>
+    mutationFn: ({ orderId, paymentStatus }: { orderId: string; paymentStatus: PaymentStatus; silentToast?: boolean }) =>
       updateAdminPaymentStatus(orderId, paymentStatus),
-    onSuccess: (order) => {
+    onSuccess: (order, variables) => {
       patchOrderCaches(order);
-      setToast('Payment status updated');
+      if (!variables?.silentToast) setToast('Payment status updated');
     },
-    onError: () => setToast('Failed to update payment status'),
+    onError: (_error, variables) => {
+      if (!variables?.silentToast) setToast('Failed to update payment status');
+    },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ordersQueryKey });
     },
   });
 
   const resultUploadMutation = useMutation({
-    mutationFn: ({ orderId, resultUrl }: { orderId: string; resultUrl: string }) => updateAdminResultUrl(orderId, resultUrl),
-    onSuccess: (order) => {
+    mutationFn: ({ orderId, resultUrl }: { orderId: string; resultUrl: string; silentToast?: boolean }) =>
+      updateAdminResultUrl(orderId, resultUrl),
+    onSuccess: (order, variables) => {
       patchOrderCaches(order);
-      setToast('Result updated');
+      if (!variables?.silentToast) setToast('Result updated');
     },
-    onError: () => setToast('Failed to update result'),
+    onError: (_error, variables) => {
+      if (!variables?.silentToast) setToast('Failed to update result');
+    },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ordersQueryKey });
     },
   });
 
   const notesMutation = useMutation({
-    mutationFn: ({ orderId, notes }: { orderId: string; notes: string }) => updateAdminNote(orderId, notes),
-    onSuccess: (order) => {
+    mutationFn: ({ orderId, notes }: { orderId: string; notes: string; silentToast?: boolean }) =>
+      updateAdminNote(orderId, notes),
+    onSuccess: (order, variables) => {
       patchOrderCaches(order);
-      setToast('Notes saved');
+      if (!variables?.silentToast) setToast('Notes saved');
     },
-    onError: () => setToast('Failed to save notes'),
+    onError: (_error, variables) => {
+      if (!variables?.silentToast) setToast('Failed to save notes');
+    },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ordersQueryKey });
     },
@@ -242,29 +330,21 @@ export const AdminOrdersPage = () => {
   // Composite actions used by the modal: ensure result/note saved before status change
   const completeOrder = async (orderId: string, resultUrl: string) => {
     try {
-      await resultUploadMutation.mutateAsync({ orderId, resultUrl });
-      await statusMutation.mutateAsync({ orderId, orderStatus: 'completed' });
-      setToast('Order completed');
+      await resultUploadMutation.mutateAsync({ orderId, resultUrl, silentToast: true });
+      await statusMutation.mutateAsync({ orderId, orderStatus: 'completed', silentToast: true });
     } catch (err) {
-      setToast('Failed to complete order');
+      throw err;
     }
   };
 
   const failOrder = async (orderId: string, adminNote: string) => {
     try {
-      await notesMutation.mutateAsync({ orderId, notes: adminNote });
-      await statusMutation.mutateAsync({ orderId, orderStatus: 'failed' });
-      setToast('Order marked failed');
+      await notesMutation.mutateAsync({ orderId, notes: adminNote, silentToast: true });
+      await statusMutation.mutateAsync({ orderId, orderStatus: 'failed', silentToast: true });
     } catch (err) {
-      setToast('Failed to mark failed');
+      throw err;
     }
   };
-
-  useEffect(() => {
-    if (!toast) return;
-    const id = setTimeout(() => setToast(''), 2000);
-    return () => clearTimeout(id);
-  }, [toast]);
 
   const statusUpdatingId = statusMutation.variables?.orderId;
   const paymentUpdatingId = paymentMutation.variables?.orderId;
@@ -277,13 +357,16 @@ export const AdminOrdersPage = () => {
         render: (order) => (
           <button
             type="button"
-            className="text-sm font-semibold text-slate-900 underline-offset-4 hover:text-slate-600 hover:underline"
-            onClick={(event) => {
+            className="w-24 truncate text-left text-sm font-semibold text-slate-900 underline-offset-4 hover:text-slate-600 hover:underline"
+            title={order.id}
+            onClick={async (event) => {
               event.stopPropagation();
-              setDetailId(order.id);
+              const copied = await copyText(order.id);
+              if (copied) setToast(`Copied Order ID: ${order.id}`);
+              else setToast('Could not copy Order ID.');
             }}
           >
-            {order.id}
+            {order.id.slice(0, 8)}
           </button>
         ),
       },
@@ -315,9 +398,11 @@ export const AdminOrdersPage = () => {
               type="button"
               className="font-mono text-sm text-slate-900 underline-offset-4 hover:text-slate-600 hover:underline"
               title="Click to copy tracking"
-              onClick={(event) => {
+              onClick={async (event) => {
                 event.stopPropagation();
-                void copyText(order.trackingCode ?? '');
+                const copied = await copyText(order.trackingCode ?? '');
+                if (copied) setToast(`Copied Tracking Code: ${order.trackingCode}`);
+                else setToast('Could not copy Tracking Code.');
               }}
             >
               {order.trackingCode}
@@ -559,12 +644,14 @@ export const AdminOrdersPage = () => {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showFailModal, setShowFailModal] = useState(false);
   const [showBulkConfirm, setShowBulkConfirm] = useState(false);
+  const [bulkStartWithUpload, setBulkStartWithUpload] = useState(false);
   const [bulkConfirmPayload, setBulkConfirmPayload] = useState<{
     total: number;
     perUser: { userId: string | null; email?: string | null; total: number; balance: number }[];
     items: { id: string; label: string; cost: number; userId: string | null; userEmail?: string | null }[];
   } | null>(null);
   const [showSingleConfirm, setShowSingleConfirm] = useState(false);
+  const [singleStartWithUpload, setSingleStartWithUpload] = useState(false);
   const [singleConfirmPayload, setSingleConfirmPayload] = useState<null | { orderId: string; cost: number; balance: number; email?: string | null }>(null);
   const [archiveConfirm, setArchiveConfirm] = useState<null | { ids: string[] }>(null);
 
@@ -595,9 +682,25 @@ export const AdminOrdersPage = () => {
 
   // Bulk action mutations
   const bulkStartMutation = useMutation({
-    mutationFn: (ids: string[]) => bulkStartOrders(ids),
-    onSuccess: () => {
-      setToast('Started processing for selected orders');
+    mutationFn: (payload: { ids: string[]; uploadTrackingPdf: boolean }) =>
+      bulkStartOrders(payload.ids, { uploadTrackingPdf: payload.uploadTrackingPdf }),
+    onSuccess: (result, variables) => {
+      const startedOrders = result?.orders ?? [];
+      startedOrders.forEach((order) => patchOrderCaches(order));
+
+      if (result?.upload) {
+        setToast(formatUploadInfoText(result.upload, startedOrders));
+      } else if (result?.uploadError) {
+        setToast(`Upload BYEASTSIDE thất bại: ${result.uploadError}`);
+      } else if (variables?.uploadTrackingPdf) {
+        setToast(
+          `Đã start processing ${startedOrders.length} order(s).\n` +
+            'Upload option đã bật nhưng backend chưa trả upload info. Hãy kiểm tra backend đã deploy bản mới chưa.',
+        );
+      } else {
+        setToast('Started processing for selected orders');
+      }
+
       clearSelection();
     },
     onSettled: () => queryClient.invalidateQueries({ queryKey: ordersQueryKey }),
@@ -623,10 +726,22 @@ export const AdminOrdersPage = () => {
   });
 
   const startMutation = useMutation({
-    mutationFn: (id: string) => startAdminOrder(id),
-    onSuccess: (order) => {
-      patchOrderCaches(order);
-      setToast('Started processing');
+    mutationFn: (payload: { id: string; uploadTrackingPdf: boolean }) =>
+      startAdminOrder(payload.id, { uploadTrackingPdf: payload.uploadTrackingPdf }),
+    onSuccess: (result, variables) => {
+      if (result?.order) {
+        patchOrderCaches(result.order);
+      }
+
+      if (result?.upload) {
+        setToast(formatUploadInfoText(result.upload, result.order ? [result.order] : []));
+      } else if (result?.uploadError) {
+        setToast(`Upload BYEASTSIDE thất bại: ${result.uploadError}`);
+      } else if (variables?.uploadTrackingPdf) {
+        setToast('Đã start processing. Upload option đã bật nhưng backend chưa trả upload info.');
+      } else {
+        setToast('Started processing');
+      }
     },
     onError: () => setToast('Failed to start order'),
     onSettled: () => queryClient.invalidateQueries({ queryKey: ordersQueryKey }),
@@ -663,6 +778,7 @@ export const AdminOrdersPage = () => {
     const total = items.reduce((s, it) => s + it.cost, 0);
 
     setBulkConfirmPayload({ total, perUser, items });
+    setBulkStartWithUpload(false);
     setShowBulkConfirm(true);
   };
 
@@ -702,12 +818,6 @@ export const AdminOrdersPage = () => {
 
   return (
     <AdminLayout title="Orders Management">
-      {toast && (
-        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-800">
-          {toast}
-        </div>
-      )}
-
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
           {[{ key: 'standard', label: 'Orders', value: 'standard' as OrdersView }, { key: 'design', label: 'Design Orders', value: 'design' as OrdersView }].map((tab) => {
@@ -1001,21 +1111,21 @@ export const AdminOrdersPage = () => {
         order={selectedOrder}
         onClose={() => setDetailId(null)}
         isLoading={detailQuery.isFetching}
-        onUpdateStatus={(status) => {
-          if (!detailId) return;
-          statusMutation.mutate({ orderId: detailId, orderStatus: status });
+        onUpdateStatus={async (status) => {
+          if (!detailId) throw new Error('Order not found');
+          await statusMutation.mutateAsync({ orderId: detailId, orderStatus: status, silentToast: true });
         }}
-        onUpdatePayment={(status) => {
-          if (!detailId) return;
-          paymentMutation.mutate({ orderId: detailId, paymentStatus: status });
+        onUpdatePayment={async (status) => {
+          if (!detailId) throw new Error('Order not found');
+          await paymentMutation.mutateAsync({ orderId: detailId, paymentStatus: status, silentToast: true });
         }}
-        onSaveResultUrl={(resultUrl) => {
-          if (!detailId) return;
-          resultUploadMutation.mutate({ orderId: detailId, resultUrl });
+        onSaveResultUrl={async (resultUrl) => {
+          if (!detailId) throw new Error('Order not found');
+          await resultUploadMutation.mutateAsync({ orderId: detailId, resultUrl, silentToast: true });
         }}
-        onSaveNotes={(notes) => {
-          if (!detailId) return;
-          notesMutation.mutate({ orderId: detailId, notes });
+        onSaveNotes={async (notes) => {
+          if (!detailId) throw new Error('Order not found');
+          await notesMutation.mutateAsync({ orderId: detailId, notes, silentToast: true });
         }}
         onComplete={(orderId, resultUrl) => completeOrder(orderId, resultUrl)}
         onFail={(orderId, adminNote) => failOrder(orderId, adminNote)}
@@ -1031,6 +1141,7 @@ export const AdminOrdersPage = () => {
           else if (order.orderType === 'design') cost = getServiceCostByKey(order.designSubtype ?? 'design') ?? 0;
           const balance = Number(((order.user as any)?.creditBalance ?? 0));
           setSingleConfirmPayload({ orderId, cost, balance, email: order.user?.email ?? null });
+          setSingleStartWithUpload(false);
           setShowSingleConfirm(true);
         }}
         isStarting={startMutation.isLoading}
@@ -1077,14 +1188,27 @@ export const AdminOrdersPage = () => {
         }
         onCancel={() => {
           setShowBulkConfirm(false);
+          setBulkStartWithUpload(false);
           setBulkConfirmPayload(null);
         }}
+        extraContent={
+          <label className="flex items-center gap-2 text-sm text-slate-700">
+            <input
+              type="checkbox"
+              className="h-4 w-4 rounded border-slate-300"
+              checked={bulkStartWithUpload}
+              onChange={(event) => setBulkStartWithUpload(event.target.checked)}
+            />
+            Start + upload tracking PDF to BYEASTSIDE
+          </label>
+        }
         onConfirm={() => {
           setShowBulkConfirm(false);
           const ids = selectedList;
-          bulkStartMutation.mutate(ids, {
+          bulkStartMutation.mutate({ ids, uploadTrackingPdf: bulkStartWithUpload }, {
             onError: (err) => setToast(`Failed to start orders: ${(err as Error).message}`),
             onSuccess: () => {
+              setBulkStartWithUpload(false);
               setBulkConfirmPayload(null);
             },
           });
@@ -1106,14 +1230,29 @@ export const AdminOrdersPage = () => {
         }
         onCancel={() => {
           setShowSingleConfirm(false);
+          setSingleStartWithUpload(false);
           setSingleConfirmPayload(null);
         }}
+        extraContent={
+          <label className="flex items-center gap-2 text-sm text-slate-700">
+            <input
+              type="checkbox"
+              className="h-4 w-4 rounded border-slate-300"
+              checked={singleStartWithUpload}
+              onChange={(event) => setSingleStartWithUpload(event.target.checked)}
+            />
+            Start + upload tracking PDF to BYEASTSIDE
+          </label>
+        }
         onConfirm={() => {
           if (!singleConfirmPayload) return;
           setShowSingleConfirm(false);
-          startMutation.mutate(singleConfirmPayload.orderId as string, {
+          startMutation.mutate({ id: singleConfirmPayload.orderId as string, uploadTrackingPdf: singleStartWithUpload }, {
             onError: (err) => setToast(`Failed to start: ${(err as Error).message}`),
-            onSuccess: () => setSingleConfirmPayload(null),
+            onSuccess: () => {
+              setSingleStartWithUpload(false);
+              setSingleConfirmPayload(null);
+            },
           });
         }}
       />

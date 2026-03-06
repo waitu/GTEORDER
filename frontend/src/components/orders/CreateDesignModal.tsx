@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { uploadDesignAssets, createDesignOrder, CreateDesignDto } from '../../api/designs';
 import { fetchAccountProfile } from '../../api/account';
 import { useNavigate } from 'react-router-dom';
+import { useToast } from '../../context/ToastProvider';
 
 export type CreateDesignModalProps = {
   open: boolean;
@@ -32,6 +33,7 @@ export const CreateDesignModal = ({ open, onClose }: CreateDesignModalProps) => 
   const fileRef = useRef<HTMLInputElement | null>(null);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { showToast } = useToast();
 
   // fetch user account (for balance)
   const { data: account, isLoading: accountLoading } = useQuery({ queryKey: ['account','profile'], queryFn: fetchAccountProfile });
@@ -83,9 +85,18 @@ export const CreateDesignModal = ({ open, onClose }: CreateDesignModalProps) => 
   const disabled = !selected || files.length === 0 || currentBalance < estimatedCredits || uploadMutation.isLoading || createMutation.isLoading;
 
   const handleSubmit = async () => {
-    if (!selected) return alert('Please select a design type');
-    if (files.length === 0) return alert('Please attach at least one file');
-    if (currentBalance < estimatedCredits) return alert('Insufficient credits');
+    if (!selected) {
+      showToast({ type: 'error', title: 'Missing design type', message: 'Please select a design type' });
+      return;
+    }
+    if (files.length === 0) {
+      showToast({ type: 'error', title: 'Missing assets', message: 'Please attach at least one file' });
+      return;
+    }
+    if (currentBalance < estimatedCredits) {
+      showToast({ type: 'error', title: 'Insufficient credits', message: 'Please top up your balance before submitting' });
+      return;
+    }
 
     try {
       const upload = await uploadMutation.mutateAsync(files);
@@ -96,10 +107,11 @@ export const CreateDesignModal = ({ open, onClose }: CreateDesignModalProps) => 
       };
       await createMutation.mutateAsync(dto);
       // simple success feedback then redirect
+      showToast({ type: 'success', title: 'Submitted', message: 'Design request created successfully.' });
       navigate('/orders?view=design');
       onClose();
     } catch (err: any) {
-      alert(err?.message || 'Failed to create design order');
+      showToast({ type: 'error', title: 'Create failed', message: err?.message || 'Failed to create design order' });
     }
   };
 

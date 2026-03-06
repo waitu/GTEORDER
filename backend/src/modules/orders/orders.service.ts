@@ -1,7 +1,12 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, SelectQueryBuilder, DataSource, DeepPartial } from 'typeorm';
 import { randomUUID } from 'crypto';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+import bwipjs from 'bwip-js';
+import PDFDocument from 'pdfkit';
 
 import { Order, OrderStatus, OrderType, PaymentStatus } from './order.entity.js';
 import { ListOrdersDto } from './dto/list-orders.dto.js';
@@ -49,6 +54,26 @@ export type OrderSummaryResponse = {
   errorCount: number;
 };
 
+type ByeastsideUploadResponse = {
+  id?: number;
+  name?: string;
+  status?: string;
+  publicUrl?: string;
+  createdAt?: string;
+};
+
+export type StartProcessingActionResponse = {
+  order: Order;
+  upload?: ByeastsideUploadResponse;
+  uploadError?: string;
+};
+
+export type BulkStartProcessingActionResponse = {
+  orders: Order[];
+  upload?: ByeastsideUploadResponse;
+  uploadError?: string;
+};
+
 @Injectable()
 export class OrdersService {
   constructor(
@@ -56,8 +81,26 @@ export class OrdersService {
     private readonly balanceService: BalanceService,
     private readonly creditService: CreditService,
     private readonly scanQueue: ScanQueueService,
+    private readonly config: ConfigService,
     private readonly dataSource: DataSource,
   ) {}
+
+  private get outputDir(): string {
+    const configured = this.config.get<string>('OUTPUT_DIR') || './storage/barcodes/output';
+    return path.resolve(configured);
+  }
+
+  private get byeastsideUploadUrl(): string {
+    const configured = this.config.get<string>('BYEASTSIDE_UPLOAD_URL');
+    if (configured && configured.trim()) {
+      return configured.trim();
+    }
+
+    const base = this.config
+      .get<string>('BYEASTSIDE_API_BASE', 'https://byeastside.uk/api/customer/pdfs')
+      .replace(/\/$/, '');
+    return `${base}/upload`;
+  }
 
   private enforceDesignRules(order: Order) {
     if (order.orderType === OrderType.DESIGN) {
@@ -182,8 +225,11 @@ export class OrdersService {
     };
   }
 
-  async getOrderById(orderId: string, scope?: { userId?: string }): Promise<Order> {
+  async getOrderById(orderId: string, scope?: { userId?: string; includeUserEmail?: boolean }): Promise<Order> {
     const qb = this.ordersRepo.createQueryBuilder('o').where('o.id = :orderId', { orderId });
+    if (scope?.includeUserEmail) {
+      qb.leftJoinAndSelect('o.user', 'user');
+    }
     if (scope?.userId) {
       qb.andWhere('o.user_id = :scopeUserId', { scopeUserId: scope.userId });
     }
@@ -560,6 +606,182 @@ export class OrdersService {
       }
     }
     return results;
+  }
+
+  private normalizeTrackingCode(value: unknown): string {
+    return String(value ?? '')
+      .trim()
+      .replace(/\s+/g, '');
+  }
+
+  private async ensureOutputDir(): Promise<void> {
+    await mkdir(this.outputDir, { recursive: true });
+  }
+
+  private getPngDimensions(buffer: Buffer): { width: number; height: number } {
+    if (buffer.length < 24) {
+      throw new Error('Invalid PNG data');
+    }
+
+    const pngSignature = '89504e470d0a1a0a';
+    const signature = buffer.subarray(0, 8).toString('hex');
+    if (signature !== pngSignature) {
+      throw new Error('Unsupported image format');
+    }
+
+    const width = buffer.readUInt32BE(16);
+    const height = buffer.readUInt32BE(20);
+    if (!width || !height) {
+      throw new Error('Invalid PNG dimensions');
+    }
+
+    return { width, height };
+  }
+
+  private async createTrackingPdfFromCodes(codes: string[]): Promise<string> {
+    await this.ensureOutputDir();
+    const fileName = `trackings_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.pdf`;
+    const filePath = path.join(this.outputDir, fileName);
+
+    await new Promise<void>(async (resolve, reject) => {
+      const doc = new PDFDocument({ autoFirstPage: false });
+      const chunks: Buffer[] = [];
+
+      doc.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+      doc.on('error', reject);
+      doc.on('end', async () => {
+        try {
+          const buffer = Buffer.concat(chunks);
+          await writeFile(filePath, buffer);
+          resolve();
+        } catch (error) {
+          reject(error);
+        }
+      });
+
+      try {
+        for (const code of codes) {
+          const pngBuffer = await bwipjs.toBuffer({
+            bcid: 'code128',
+            text: code,
+            includetext: true,
+            textxalign: 'center',
+            scale: 3,
+            height: 12,
+            backgroundcolor: 'FFFFFF',
+          });
+
+          const image = this.getPngDimensions(pngBuffer);
+          const horizontalPadding = 18;
+          const topPadding = 14;
+          const bottomPadding = 16;
+
+          const pageWidth = image.width + horizontalPadding * 2;
+          const pageHeight = topPadding + image.height + bottomPadding;
+
+          doc.addPage({
+            size: [pageWidth, pageHeight],
+            margins: { top: 0, bottom: 0, left: 0, right: 0 },
+          });
+
+          doc.image(pngBuffer, horizontalPadding, topPadding, {
+            width: image.width,
+            height: image.height,
+          });
+        }
+
+        doc.end();
+      } catch (error) {
+        reject(error);
+      }
+    });
+
+    return fileName;
+  }
+
+  private async uploadPdfToByeastside(pdfFileName: string): Promise<ByeastsideUploadResponse> {
+    const apiKey = this.config.get<string>('BYEASTSIDE_API_KEY');
+    if (!apiKey) {
+      throw new BadRequestException('Missing BYEASTSIDE_API_KEY');
+    }
+
+    const filePath = path.join(this.outputDir, pdfFileName);
+    const fileBuffer = await readFile(filePath);
+    const form = new FormData();
+    const uploadName = pdfFileName.toLowerCase().endsWith('.pdf') ? pdfFileName : `${pdfFileName}.pdf`;
+    form.set('file', new Blob([fileBuffer], { type: 'application/pdf' }), uploadName);
+
+    const response = await fetch(this.byeastsideUploadUrl, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: form,
+    });
+
+    if (!response.ok) {
+      const detail = await response.text();
+      throw new BadRequestException(`BYEASTSIDE upload failed: ${response.status} ${detail}`);
+    }
+
+    return response.json() as Promise<ByeastsideUploadResponse>;
+  }
+
+  async uploadTrackingPdfForOrders(orderIds: string[]): Promise<ByeastsideUploadResponse> {
+    const ids = Array.from(new Set((orderIds ?? []).filter(Boolean)));
+    if (ids.length === 0) {
+      throw new BadRequestException('No orders selected for tracking PDF upload');
+    }
+
+    const orders = await this.ordersRepo
+      .createQueryBuilder('o')
+      .where('o.id IN (:...ids)', { ids })
+      .getMany();
+
+    const trackingCodes = Array.from(
+      new Set(
+        orders
+          .map((order) => this.normalizeTrackingCode(order.trackingCode))
+          .filter((code) => code.length > 0),
+      ),
+    );
+
+    if (trackingCodes.length === 0) {
+      throw new BadRequestException('Selected orders have no tracking codes to upload');
+    }
+
+    const pdfFileName = await this.createTrackingPdfFromCodes(trackingCodes);
+    return this.uploadPdfToByeastside(pdfFileName);
+  }
+
+  async startProcessingAction(orderId: string, options?: { uploadTrackingPdf?: boolean }): Promise<StartProcessingActionResponse> {
+    const order = await this.startProcessing(orderId);
+
+    if (!options?.uploadTrackingPdf) {
+      return { order };
+    }
+
+    try {
+      const upload = await this.uploadTrackingPdfForOrders([order.id]);
+      return { order, upload };
+    } catch (error: any) {
+      return { order, uploadError: error?.message ?? 'Failed to upload tracking PDF' };
+    }
+  }
+
+  async bulkStartProcessingAction(orderIds: string[], options?: { uploadTrackingPdf?: boolean }): Promise<BulkStartProcessingActionResponse> {
+    const orders = await this.bulkStartProcessing(orderIds);
+
+    if (!options?.uploadTrackingPdf) {
+      return { orders };
+    }
+
+    try {
+      const upload = await this.uploadTrackingPdfForOrders(orders.map((order) => order.id));
+      return { orders, upload };
+    } catch (error: any) {
+      return { orders, uploadError: error?.message ?? 'Failed to upload tracking PDF' };
+    }
   }
 
   /**

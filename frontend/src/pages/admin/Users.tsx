@@ -11,9 +11,11 @@ import {
   updateUserRole,
   updateUserStatus,
 } from '../../api/admin';
+import { useToast } from '../../context/ToastProvider';
 
 export const AdminUsersPage = () => {
   const queryClient = useQueryClient();
+  const { showToast } = useToast();
   const { data: users, isLoading, isError } = useQuery({ queryKey: ['admin', 'users'], queryFn: fetchAdminUsers });
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [detail, setDetail] = useState<AdminUser | null>(null);
@@ -26,12 +28,26 @@ export const AdminUsersPage = () => {
 
   const statusMutation = useMutation({
     mutationFn: ({ id, status }: { id: string; status: 'pending' | 'active' | 'disabled' }) => updateUserStatus(id, status),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'users'] }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
+      showToast({ type: 'success', title: 'Saved', message: 'User status updated.' });
+    },
+    onError: (err: any) => {
+      const msg = err?.response?.data?.message ?? err?.message ?? 'Failed to update user status';
+      showToast({ type: 'error', title: 'Update failed', message: Array.isArray(msg) ? msg.join(', ') : String(msg) });
+    },
   });
 
   const roleMutation = useMutation({
     mutationFn: ({ id, role }: { id: string; role: 'user' | 'admin' }) => updateUserRole(id, role),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'users'] }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
+      showToast({ type: 'success', title: 'Saved', message: 'User role updated.' });
+    },
+    onError: (err: any) => {
+      const msg = err?.response?.data?.message ?? err?.message ?? 'Failed to update user role';
+      showToast({ type: 'error', title: 'Update failed', message: Array.isArray(msg) ? msg.join(', ') : String(msg) });
+    },
   });
 
   const loadDetail = async (userId: string) => {
@@ -208,10 +224,10 @@ export const AdminUsersPage = () => {
                       const hist = await fetchUserCreditHistory(detail.id);
                       setHistory(hist);
                       setAdjustModalOpen(false);
-                      // simple toast
-                      alert('Credit balance updated');
+                      showToast({ type: 'success', title: 'Saved', message: 'Credit balance updated.' });
                     } catch (err: any) {
-                      alert(err?.message ?? 'Adjustment failed');
+                      const msg = err?.response?.data?.message ?? err?.message ?? 'Adjustment failed';
+                      showToast({ type: 'error', title: 'Adjustment failed', message: Array.isArray(msg) ? msg.join(', ') : String(msg) });
                     }
                   }}
                 >

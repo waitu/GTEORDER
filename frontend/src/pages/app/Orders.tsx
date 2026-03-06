@@ -11,6 +11,7 @@ import { ImportLabelsModal } from '../../components/orders/ImportLabelsModal';
 import CreateDesignModal from '../../components/orders/CreateDesignModal';
 import { ConfirmModal } from '../../components/ConfirmModal';
 import { AlertModal } from '../../components/AlertModal';
+import { useToast } from '../../context/ToastProvider';
 
 const ORDER_TYPES: OrderType[] = ['active_tracking', 'empty_package', 'design', 'other'];
 const STANDARD_ORDER_TYPES: Array<Extract<OrderType, 'active_tracking' | 'empty_package'>> = ['active_tracking', 'empty_package'];
@@ -70,11 +71,11 @@ const OrdersPageBase = ({ view }: { view: OrdersView }) => {
   const [exportStatus, setExportStatus] = useState<OrderStatus | 'all'>('all');
   const [exportError, setExportError] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [payMessage, setPayMessage] = useState<string | null>(null);
   const [payConfirmOpen, setPayConfirmOpen] = useState(false);
   const [pendingPayIds, setPendingPayIds] = useState<string[]>([]);
   const [payResultOpen, setPayResultOpen] = useState(false);
   const [payResult, setPayResult] = useState<{ paidOrderIds: string[]; unpaidOrderIds: string[] } | null>(null);
+  const { showToast } = useToast();
 
   const queryState: OrdersQueryParams = useMemo(() => {
     const base: OrdersQueryParams = {
@@ -332,7 +333,6 @@ const OrdersPageBase = ({ view }: { view: OrdersView }) => {
   // Reset selection when filters/page change.
   useEffect(() => {
     setSelectedIds(new Set());
-    setPayMessage(null);
   }, [view, queryState.orderType, queryState.orderStatus, queryState.paymentStatus, queryState.search, queryState.from, queryState.to, queryState.page, queryState.limit, queryState.designSubtype]);
 
   const unpaidSelectedCount = useMemo(() => {
@@ -354,14 +354,22 @@ const OrdersPageBase = ({ view }: { view: OrdersView }) => {
       setPayResult(res);
       setPayResultOpen(true);
       if (res.unpaidOrderIds.length > 0) {
-        setPayMessage(`Paid ${res.paidOrderIds.length}. Remaining unpaid: ${res.unpaidOrderIds.length} (insufficient balance).`);
+        showToast({
+          type: 'error',
+          title: 'Payment partial',
+          message: `Paid ${res.paidOrderIds.length}. Remaining unpaid: ${res.unpaidOrderIds.length} (insufficient balance).`,
+        });
       } else {
-        setPayMessage(`Paid ${res.paidOrderIds.length} order(s).`);
+        showToast({ type: 'success', title: 'Payment complete', message: `Paid ${res.paidOrderIds.length} order(s).` });
       }
     },
     onError: (err: any) => {
       const msg = err?.response?.data?.message ?? err?.message ?? 'Payment failed';
-      setPayMessage(Array.isArray(msg) ? msg.join(', ') : String(msg));
+      showToast({
+        type: 'error',
+        title: 'Payment failed',
+        message: Array.isArray(msg) ? msg.join(', ') : String(msg),
+      });
     },
   });
 
@@ -549,13 +557,6 @@ const OrdersPageBase = ({ view }: { view: OrdersView }) => {
           )
         }
       />
-
-      {payMessage && (
-        <div className="mt-3 rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm">
-          {payMessage}
-        </div>
-      )}
-
       {exportOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
           <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl">
@@ -777,7 +778,7 @@ const OrdersPageBase = ({ view }: { view: OrdersView }) => {
                 <button
                   type="button"
                   className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-slate-800"
-                  onClick={() => alert('Create order flow coming soon')}
+                  onClick={() => showToast({ type: 'info', title: 'Coming soon', message: 'Create order flow coming soon' })}
                 >
                   Create your first order
                 </button>

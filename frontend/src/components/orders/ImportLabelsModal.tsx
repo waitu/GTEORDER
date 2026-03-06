@@ -4,6 +4,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { getServiceCostByKey } from '../../lib/pricing';
 import { http } from '../../api/http';
 import { AlertModal } from '../AlertModal';
+import { useToast } from '../../context/ToastProvider';
 
 export type ImportRow = {
   id: string;
@@ -112,12 +113,12 @@ export const ImportLabelsModal = ({ open, onClose, onSubmit, isSubmitting, defau
   const [error, setError] = useState<string | null>(null);
   const [localSubmitting, setLocalSubmitting] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
-  const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [serverResult, setServerResult] = useState<any>(null);
   const [resultOpen, setResultOpen] = useState(false);
   const excelInputRef = useRef<HTMLInputElement | null>(null);
   const queryClient = useQueryClient();
+  const { showToast } = useToast();
 
   const pushLog = (_msg: string, _data?: any) => {
     // no-op in production UI to avoid noisy logs
@@ -202,7 +203,11 @@ export const ImportLabelsModal = ({ open, onClose, onSubmit, isSubmitting, defau
       if (!previewId) throw new Error('No preview available. Upload a sheet first.');
       const { data } = await http.post('/labels/import/excel/confirm', { previewId });
       setServerResult(data);
-      setNotification({ type: 'success', message: `Imported ${data.created ?? 0} labels, failed ${data.failed ?? 0}` });
+      showToast({
+        type: 'success',
+        title: 'Import completed',
+        message: `Imported ${data.created ?? 0} labels, failed ${data.failed ?? 0}`,
+      });
       // Invalidate orders queries so Orders page refreshes (non-exact to include filtered keys)
       void queryClient.invalidateQueries({ queryKey: ['orders'], exact: false });
       onSubmit?.(rows);
@@ -211,17 +216,11 @@ export const ImportLabelsModal = ({ open, onClose, onSubmit, isSubmitting, defau
     } catch (err: any) {
       const msg = err?.message || 'Upload failed';
       setError(msg);
-      setNotification({ type: 'error', message: msg });
+      showToast({ type: 'error', title: 'Import failed', message: msg });
     } finally {
       setLocalSubmitting(false);
     }
   };
-
-  useEffect(() => {
-    if (!notification) return;
-    const t = setTimeout(() => setNotification(null), 4000);
-    return () => clearTimeout(t);
-  }, [notification]);
 
   if (!open) return null;
 
@@ -296,15 +295,6 @@ export const ImportLabelsModal = ({ open, onClose, onSubmit, isSubmitting, defau
             </button>
           </div>
         </div>
-
-        {/* Notification toast */}
-        {notification && (
-          <div className={`fixed top-6 right-6 z-60 rounded-md px-4 py-3 shadow-lg ${notification.type === 'success' ? 'bg-emerald-600 text-white' : 'bg-rose-600 text-white'}`}>
-            <div className="text-sm font-semibold">{notification.type === 'success' ? 'Import successful' : 'Import error'}</div>
-            <div className="text-xs mt-1">{notification.message}</div>
-          </div>
-        )}
-
             {
           <div className="mt-4 rounded-xl border border-dashed border-slate-200 bg-slate-50 p-4">
             <div className="flex flex-col gap-2 text-sm text-slate-700">

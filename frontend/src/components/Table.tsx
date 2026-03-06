@@ -1,4 +1,4 @@
-import { ReactNode } from 'react';
+import { MouseEvent, ReactNode } from 'react';
 import clsx from 'clsx';
 
 export type TableColumn<T> = {
@@ -19,6 +19,26 @@ type TableProps<T> = {
   onToggleAll?: (checked: boolean) => void;
 };
 export function Table<T extends Record<string, any>>({ columns, data, emptyMessage = 'No records', onRowClick, selectable, selectedIds, onToggleRow, onToggleAll }: TableProps<T>) {
+  const handleRowClick = (event: MouseEvent<HTMLTableRowElement>, row: T) => {
+    if (!onRowClick) return;
+
+    const target = event.target as HTMLElement;
+
+    if (
+      target.closest('button, a, input, select, textarea, label, [role="button"], [data-prevent-row-click]') ||
+      target.closest('[data-row-content]')
+    ) {
+      return;
+    }
+
+    const selection = window.getSelection?.();
+    if (selection && selection.toString().trim().length > 0) {
+      return;
+    }
+
+    onRowClick(row);
+  };
+
   return (
     <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
       <div className="overflow-x-auto">
@@ -54,7 +74,7 @@ export function Table<T extends Record<string, any>>({ columns, data, emptyMessa
                 <tr
                   key={idx}
                   className={clsx('hover:bg-slate-50', onRowClick ? 'cursor-pointer' : undefined)}
-                  onClick={onRowClick ? () => onRowClick(row) : undefined}
+                  onClick={onRowClick ? (event) => handleRowClick(event, row) : undefined}
                 >
                   {selectable && (
                     <td className="px-4 py-3 text-slate-800" onClick={(e) => e.stopPropagation()}>
@@ -68,7 +88,9 @@ export function Table<T extends Record<string, any>>({ columns, data, emptyMessa
                   )}
                   {columns.map((col) => (
                     <td key={col.key as string} className={clsx('px-4 py-3 text-slate-800', col.className)}>
-                      {col.render ? col.render(row) : (row as any)[col.key]}
+                      <span data-row-content className="inline-block max-w-full align-middle">
+                        {col.render ? col.render(row) : (row as any)[col.key]}
+                      </span>
                     </td>
                   ))}
                 </tr>

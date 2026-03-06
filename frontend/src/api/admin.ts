@@ -100,6 +100,30 @@ export type AdminOrdersSummary = {
   errorCount: number;
 };
 
+export type StartProcessingResponse = {
+  order: AdminOrder;
+  upload?: {
+    id?: number;
+    name?: string;
+    status?: string;
+    publicUrl?: string;
+    createdAt?: string;
+  };
+  uploadError?: string;
+};
+
+export type BulkStartProcessingResponse = {
+  orders: AdminOrder[];
+  upload?: {
+    id?: number;
+    name?: string;
+    status?: string;
+    publicUrl?: string;
+    createdAt?: string;
+  };
+  uploadError?: string;
+};
+
 export type ByeastsideSettings = {
   cron: string;
   enabled: boolean;
@@ -290,13 +314,18 @@ export const updateAdminNote = async (id: string, adminNote: string): Promise<Ad
   return data;
 };
 
-export const startAdminOrder = async (id: string) => {
-  const { data } = await http.post<AdminOrder>(`/admin/orders/${id}/start`);
+export const startAdminOrder = async (id: string, options?: { uploadTrackingPdf?: boolean }) => {
+  const { data } = await http.post<StartProcessingResponse>(`/admin/orders/${id}/start`, {
+    uploadTrackingPdf: Boolean(options?.uploadTrackingPdf),
+  });
   return data;
 };
 
-export const bulkStartOrders = async (ids: string[]) => {
-  const { data } = await http.post<AdminOrder[]>(`/admin/orders/bulk/start`, { ids });
+export const bulkStartOrders = async (ids: string[], options?: { uploadTrackingPdf?: boolean }) => {
+  const { data } = await http.post<BulkStartProcessingResponse>(`/admin/orders/bulk/start`, {
+    ids,
+    uploadTrackingPdf: Boolean(options?.uploadTrackingPdf),
+  });
   return data;
 };
 

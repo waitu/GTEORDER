@@ -8,16 +8,39 @@ import { useAuth } from '../context/AuthProvider';
 export const LoginPage = () => {
   const { login } = useAuth();
   const [email, setEmail] = useState('');
-  const [error, setError] = useState('');
+  const [fieldError, setFieldError] = useState('');
+  const [formError, setFormError] = useState('');
   const [loading, setLoading] = useState(false);
   const [info, setInfo] = useState('');
 
+  const normalizeErrorMessage = (message: unknown): string => {
+    if (typeof message === 'string') {
+      const lines = message
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean);
+      const uniqueLines = Array.from(new Set(lines));
+      return uniqueLines.join('\n');
+    }
+
+    if (Array.isArray(message)) {
+      const lines = message
+        .map((item) => String(item).trim())
+        .filter(Boolean);
+      const uniqueLines = Array.from(new Set(lines));
+      return uniqueLines.join('\n');
+    }
+
+    return '';
+  };
+
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    setError('');
+    setFieldError('');
+    setFormError('');
     setInfo('');
     if (!email.trim()) {
-      setError('Email is required');
+      setFieldError('Email is required');
       return;
     }
 
@@ -28,12 +51,11 @@ export const LoginPage = () => {
     } catch (err) {
       const axiosErr = err as AxiosError<any>;
       const serverMessage = axiosErr?.response?.data?.message;
-      if (typeof serverMessage === 'string' && serverMessage.trim().length > 0) {
-        setError(serverMessage);
-      } else if (Array.isArray(serverMessage) && serverMessage.length > 0) {
-        setError(String(serverMessage[0]));
+      const normalized = normalizeErrorMessage(serverMessage);
+      if (normalized) {
+        setFormError(normalized);
       } else {
-        setError('Unable to send login code. Please try again.');
+        setFormError('Unable to send login code. Please try again.');
       }
       console.error(err);
     } finally {
@@ -44,19 +66,19 @@ export const LoginPage = () => {
   return (
     <AuthLayout title="Login with OTP">
       <form onSubmit={onSubmit} className="space-y-5">
-        <FormField label="Email" error={error && !email ? error : undefined}>
+        <FormField label="Email" error={fieldError || undefined}>
           <Input
             type="email"
             placeholder="you@example.com"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            hasError={!!error && !email}
+            hasError={!!fieldError}
             autoComplete="email"
           />
         </FormField>
 
         {info && <p className="text-sm text-sky-700">{info}</p>}
-        {error && <p className="text-sm text-red-600">{error}</p>}
+        {formError && <p className="whitespace-pre-line text-sm text-red-600">{formError}</p>}
 
         <button
           type="submit"

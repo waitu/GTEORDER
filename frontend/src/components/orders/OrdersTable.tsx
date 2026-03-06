@@ -3,6 +3,7 @@ import clsx from 'clsx';
 import { Order, OrderStatus, OrderType, PaymentStatus } from '../../api/orders';
 import { Table, TableColumn } from '../Table';
 import { formatCostText } from '../../lib/pricing';
+import { useToast } from '../../context/ToastProvider';
 
 const typeLabels: Record<OrderType, string> = {
   active_tracking: 'Active tracking',
@@ -74,8 +75,10 @@ const copyText = async (value: string) => {
   if (!value.trim()) return;
   try {
     await navigator.clipboard.writeText(value);
+    return true;
   } catch (error) {
     // no-op if clipboard is unavailable
+    return false;
   }
 };
 
@@ -166,6 +169,9 @@ type OrdersTableProps<T extends Order = Order> = {
 
 export function buildDefaultOrderColumns<T extends Order = Order>(options?: {
   onOrderClick?: (order: T) => void;
+  onCopyOrderId?: (orderId: string, copied: boolean) => void;
+  onCopyTrackingCode?: (trackingCode: string, copied: boolean) => void;
+  onCopyLabelUrl?: (labelUrl: string, copied: boolean) => void;
   onImagePreview?: (url: string) => void;
   onAssetsPreview?: (payload: { order: T; images: string[]; others: string[] }) => void;
   hideTracking?: boolean;
@@ -185,15 +191,15 @@ export function buildDefaultOrderColumns<T extends Order = Order>(options?: {
       render: (order) => (
         <button
           type="button"
-          className="w-36 break-words text-left text-sm font-semibold text-slate-900 line-clamp-2 underline-offset-4 hover:text-slate-600 hover:underline"
-          onClick={(event) => {
-            if (options?.onOrderClick) {
-              event.stopPropagation();
-              options.onOrderClick(order);
-            }
+          className="w-24 truncate text-left text-sm font-semibold text-slate-900 underline-offset-4 hover:text-slate-600 hover:underline"
+          title={order.id}
+          onClick={async (event) => {
+            event.stopPropagation();
+            const copied = await copyText(order.id);
+            options?.onCopyOrderId?.(order.id, copied);
           }}
         >
-          {order.id}
+          {order.id.slice(0, 8)}
         </button>
       ),
     },
@@ -241,9 +247,11 @@ export function buildDefaultOrderColumns<T extends Order = Order>(options?: {
             type="button"
             className="font-mono text-base font-semibold text-slate-900 underline-offset-4 hover:text-slate-600 hover:underline"
             title="Click to copy tracking"
-            onClick={(event) => {
+            onClick={async (event) => {
               event.stopPropagation();
-              void copyText(order.trackingCode ?? '');
+              const value = order.trackingCode ?? '';
+              const copied = await copyText(value);
+              options?.onCopyTrackingCode?.(value, copied);
             }}
           >
             {order.trackingCode}
@@ -266,14 +274,11 @@ export function buildDefaultOrderColumns<T extends Order = Order>(options?: {
             <button
               type="button"
               className="group relative inline-flex h-12 w-12 overflow-hidden rounded-lg border border-slate-200 shadow-sm"
-              title="Open order details"
-              onClick={(event) => {
+              title="Click to copy label URL"
+              onClick={async (event) => {
                 event.stopPropagation();
-                if (options?.onOrderClick) {
-                  options.onOrderClick(order);
-                } else {
-                  options?.onImagePreview?.(url);
-                }
+                const copied = await copyText(url);
+                options?.onCopyLabelUrl?.(url, copied);
               }}
             >
               <img src={url} alt="Label preview" className="h-full w-full object-cover transition group-hover:scale-105" />
@@ -282,16 +287,18 @@ export function buildDefaultOrderColumns<T extends Order = Order>(options?: {
         }
         const domain = extractDomain(url);
         return (
-          <a
-            href={url}
-            target="_blank"
-            rel="noreferrer"
-            onClick={(event) => event.stopPropagation()}
+          <button
+            type="button"
+            onClick={async (event) => {
+              event.stopPropagation();
+              const copied = await copyText(url);
+              options?.onCopyLabelUrl?.(url, copied);
+            }}
             className="text-sm font-medium text-sky-700 underline-offset-4 hover:text-sky-900 hover:underline"
             title={url}
           >
             {domain || 'Open'}
-          </a>
+          </button>
         );
       },
     },
@@ -472,6 +479,7 @@ export const OrdersTable = <T extends Order = Order>({
   onToggleRow: onToggleRowProp,
   onToggleAll: onToggleAllProp,
 }: OrdersTableProps<T>) => {
+  const { showToast } = useToast();
   const [assetPreview, setAssetPreview] = useState<{ open: boolean; images: string[]; others: string[] }>({ open: false, images: [], others: [] });
   const [internalSelectedIds, setInternalSelectedIds] = useState<Set<string>>(new Set());
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
@@ -482,6 +490,27 @@ export const OrdersTable = <T extends Order = Order>({
     }
     return buildDefaultOrderColumns<T>({
       onOrderClick: onRowClick,
+      onCopyOrderId: (orderId, copied) => {
+        if (copied) {
+          showToast({ type: 'success', title: 'Copied', message: `Copied Order ID: ${orderId}` });
+          return;
+        }
+        showToast({ type: 'error', title: 'Copy failed', message: 'Could not copy Order ID.' });
+      },
+      onCopyTrackingCode: (trackingCode, copied) => {
+        if (copied) {
+          showToast({ type: 'success', title: 'Copied', message: `Copied Tracking Code: ${trackingCode}` });
+          return;
+        }
+        showToast({ type: 'error', title: 'Copy failed', message: 'Could not copy Tracking Code.' });
+      },
+      onCopyLabelUrl: (labelUrl, copied) => {
+        if (copied) {
+          showToast({ type: 'success', title: 'Copied', message: `Copied Label URL: ${labelUrl}` });
+          return;
+        }
+        showToast({ type: 'error', title: 'Copy failed', message: 'Could not copy Label URL.' });
+      },
       onImagePreview: (url) => setLightboxSrc(url),
       onAssetsPreview: ({ images, others }) => setAssetPreview({ open: true, images, others }),
       hideTracking,
@@ -491,7 +520,7 @@ export const OrdersTable = <T extends Order = Order>({
       labelHeader,
       showAssets,
     });
-  }, [columns, onRowClick, hideTracking, showDesignSubtype, designSubtypeLabels, primaryUrlSource, labelHeader, showAssets]);
+  }, [columns, onRowClick, hideTracking, showDesignSubtype, designSubtypeLabels, primaryUrlSource, labelHeader, showAssets, showToast]);
 
   const isControlled = selectedIdsProp !== undefined;
   const selectedIds = isControlled ? selectedIdsProp! : internalSelectedIds;

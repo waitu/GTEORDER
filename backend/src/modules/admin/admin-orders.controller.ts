@@ -28,7 +28,7 @@ export class AdminOrdersController {
 
   @Get(':id')
   async getOrder(@Param('id', new ParseUUIDPipe()) id: string) {
-    return this.ordersService.getOrderById(id);
+    return this.ordersService.getOrderById(id, { includeUserEmail: true });
   }
 
   @Patch(':id/status')
@@ -51,8 +51,10 @@ export class AdminOrdersController {
     return this.ordersService.updateAdminNote(id, body.adminNote ?? null);
   }
   @Post('bulk/start')
-  async bulkStart(@Body() body: { ids: string[] }) {
-    return this.ordersService.bulkStartProcessing(body.ids || []);
+  async bulkStart(@Body() body: { ids: string[]; uploadTrackingPdf?: boolean }) {
+    return this.ordersService.bulkStartProcessingAction(body.ids || [], {
+      uploadTrackingPdf: Boolean(body.uploadTrackingPdf),
+    });
   }
 
   @Post('bulk/fail')
@@ -70,15 +72,17 @@ export class AdminOrdersController {
   }
 
   @Post(':id/start')
-  async startProcessing(@Param('id', new ParseUUIDPipe()) id: string) {
-    return this.ordersService.startProcessing(id);
+  async startProcessing(@Param('id', new ParseUUIDPipe()) id: string, @Body() body?: { uploadTrackingPdf?: boolean }) {
+    return this.ordersService.startProcessingAction(id, {
+      uploadTrackingPdf: Boolean(body?.uploadTrackingPdf),
+    });
   }
 
   @Post(':id/result/upload')
   @UseInterceptors(FileInterceptor('file'))
   async uploadResult(@Req() req: Request & { user?: any }, @Param('id', new ParseUUIDPipe()) id: string, @UploadedFile() file: any) {
     // Admin uploads a result file for the order. Save under the order owner's folder and set resultUrl.
-    const order = await this.ordersService.getOrderById(id);
+    const order = await this.ordersService.getOrderById(id, { includeUserEmail: true });
     const userId = order.user?.id;
     if (!userId) throw new Error('Order has no owner');
     // Use dynamic import to avoid circular dependency at top-level

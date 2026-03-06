@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AdminLayout } from '../../components/AdminLayout';
 import { Table } from '../../components/Table';
@@ -11,11 +11,18 @@ import {
   rejectRegistrationRequest,
   RegistrationRequest,
 } from '../../api/admin';
+import { useToast } from '../../context/ToastProvider';
 
 export const AdminRequestsPage = () => {
   const [approveId, setApproveId] = useState<string | null>(null);
   const [rejectId, setRejectId] = useState<string | null>(null);
-  const [toast, setToast] = useState<string>('');
+  const { showToast } = useToast();
+  const setToast = (message: string) => {
+    showToast({
+      message,
+      type: /failed|rejected|error|could not/i.test(message) ? 'error' : 'success',
+    });
+  };
   const queryClient = useQueryClient();
 
   const { data: rows, isLoading, isError } = useQuery({
@@ -61,19 +68,8 @@ export const AdminRequestsPage = () => {
     [rows],
   );
 
-  useEffect(() => {
-    if (!toast) return;
-    const id = setTimeout(() => setToast(''), 2000);
-    return () => clearTimeout(id);
-  }, [toast]);
-
   return (
     <AdminLayout title="Registration Requests">
-      {toast && (
-        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-800">
-          {toast}
-        </div>
-      )}
       <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
         {isLoading && <p className="text-sm text-slate-600">Loading requests…</p>}
         {isError && <p className="text-sm text-red-700">Could not load requests.</p>}
