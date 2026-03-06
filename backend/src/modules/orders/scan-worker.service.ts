@@ -59,18 +59,14 @@ export class ScanWorkerService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
-    const now = new Date();
     if (job.orderId) {
       try {
-        // Only auto-update the order if an admin already moved it to 'processing'.
+        // Keep current status unless real carrier activation integration confirms success.
         const order = await this.orders.getOrderById(job.orderId);
         if (order.orderStatus === OrderStatus.PROCESSING) {
-          await this.orders.markScanSuccess(job.orderId, {
-            trackingCode: job.trackingCode ?? job.labelUrl ?? undefined,
-            trackingUrl: job.trackingCode ? `https://track.example.com/${encodeURIComponent(job.trackingCode)}` : null,
-            activatedAt: now,
-            firstCheckpointAt: now,
-          });
+          this.logger.log(
+            `Job ${job.jobId} processed for order ${job.orderId}; keeping status processing until external confirmation`,
+          );
         } else {
           this.logger.log(`Job ${job.jobId} linked to order ${job.orderId} has status '${order.orderStatus}'; skipping automatic completion until admin marks it processing`);
         }
