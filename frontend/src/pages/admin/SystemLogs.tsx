@@ -1,43 +1,59 @@
+import { useQuery } from '@tanstack/react-query';
 import { AdminLayout } from '../../components/AdminLayout';
 import { Card } from '../../components/Card';
 import { Badge } from '../../components/Badge';
 import { EmptyState } from '../../components/EmptyState';
+import { fetchAuditLogs, AuditLog } from '../../api/admin';
 
-const mockLogs = [
-  { id: 1, severity: 'info', message: 'User login success', timestamp: '2025-12-17 10:12:01' },
-  { id: 2, severity: 'warn', message: 'OTP retries nearing threshold', timestamp: '2025-12-17 10:08:44' },
-  { id: 3, severity: 'error', message: 'Billing webhook timeout', timestamp: '2025-12-17 09:58:10' },
-];
+const toSeverity = (action: string): 'info' | 'warn' | 'error' => {
+  const normalized = action.toLowerCase();
+  if (normalized.includes('reject') || normalized.includes('fail') || normalized.includes('error')) return 'error';
+  if (normalized.includes('disable') || normalized.includes('update') || normalized.includes('adjust')) return 'warn';
+  return 'info';
+};
 
-export const SystemLogsPage = () => (
-  <AdminLayout title="System Logs & Audits">
-    <Card title="Live view" description="Placeholder view combining system logs and audit signals. Swap with real log stream later.">
-      {mockLogs.length === 0 ? (
-        <EmptyState title="No log entries" description="Logs will appear here once connected to a source." />
-      ) : (
-        <div className="space-y-3">
-          {mockLogs.map((log) => (
-            <div key={log.id} className="flex items-start justify-between rounded-lg border border-slate-100 bg-slate-50 px-4 py-3">
-              <div>
-                <p className="text-xs uppercase tracking-wide text-slate-500">{log.timestamp}</p>
-                <p className="text-sm font-semibold text-ink">{log.message}</p>
-              </div>
-              <Badge variant={log.severity === 'error' ? 'danger' : log.severity === 'warn' ? 'warning' : 'info'}>{log.severity}</Badge>
-            </div>
-          ))}
-        </div>
-      )}
-    </Card>
-  </AdminLayout>
-);
+const formatTime = (value?: string) => {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString();
+};
 
-const badgeColor = (severity: string) => {
-  switch (severity) {
-    case 'error':
-      return '#ef4444';
-    case 'warn':
-      return '#f59e0b';
-    default:
-      return '#0ea5e9';
-  }
+export const SystemLogsPage = () => {
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['admin', 'audits'],
+    queryFn: fetchAuditLogs,
+  });
+
+  const logs = (data ?? []) as AuditLog[];
+
+  return (
+    <AdminLayout title="System Logs & Audits">
+      <Card title="Live view" description="Real admin audit stream from `/admin/audits`.">
+        {isLoading ? (
+          <p className="text-sm text-slate-600">Loading logs…</p>
+        ) : isError ? (
+          <p className="text-sm text-rose-700">Could not load logs.</p>
+        ) : logs.length === 0 ? (
+          <EmptyState title="No log entries" description="No audit log entries found." />
+        ) : (
+          <div className="space-y-3">
+            {logs.map((log) => {
+              const severity = toSeverity(log.action);
+              return (
+                <div key={log.id ?? `${log.action}-${log.createdAt}`} className="flex items-start justify-between rounded-lg border border-slate-100 bg-slate-50 px-4 py-3">
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-slate-500">{formatTime(log.createdAt)}</p>
+                    <p className="text-sm font-semibold text-ink">{log.action}</p>
+                    {log.targetId && <p className="text-xs text-slate-600">Target: {log.targetId}</p>}
+                  </div>
+                  <Badge variant={severity === 'error' ? 'danger' : severity === 'warn' ? 'warning' : 'info'}>{severity}</Badge>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Card>
+    </AdminLayout>
+  );
 };

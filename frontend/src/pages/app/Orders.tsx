@@ -802,7 +802,7 @@ const OrdersPageBase = ({ view }: { view: OrdersView }) => {
                 >
                   {[10, 20, 50].map((option) => (
                     <option key={option} value={option}>
-                      {option} / page
+                      {option}/p
                     </option>
                   ))}
                 </select>

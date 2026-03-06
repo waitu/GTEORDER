@@ -94,9 +94,21 @@ export class OrdersService {
     }
     if (filters.search) {
       const search = filters.search.trim();
-      qb.andWhere('(o.id::text ILIKE :search OR o.trackingCode ILIKE :search)', {
+      qb.andWhere(
+        `(
+          o.id::text ILIKE :search
+          OR o.trackingCode ILIKE :search
+          OR EXISTS (
+            SELECT 1
+            FROM users u
+            WHERE u.id = o.user_id
+              AND u.email ILIKE :search
+          )
+        )`,
+        {
         search: `%${search}%`,
-      });
+        },
+      );
     }
     if (filters.startDate) {
       qb.andWhere('o.createdAt >= :startDate', { startDate: filters.startDate });

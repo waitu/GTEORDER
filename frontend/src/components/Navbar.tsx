@@ -56,8 +56,8 @@ export const Navbar = () => {
     <header className="sticky top-0 z-30 border-b border-slate-100 bg-white/90 backdrop-blur">
       <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
         <div className="flex items-center gap-8">
-          <Link to={isAuthenticated ? (onAdminRoute ? '/admin' : '/dashboard') : '/'} className="text-xl font-bold text-ink">
-            sclabel.io
+          <Link to={isAuthenticated ? (onAdminRoute ? '/admin' : '/dashboard') : '/'} className="inline-flex items-center">
+            <img src="/logo.png" alt="SCLabel" className="h-14 w-auto" />
           </Link>
           <nav className="hidden md:flex items-center gap-6 text-sm font-semibold text-slate-700">
             {!isAuthenticated &&

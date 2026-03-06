@@ -297,8 +297,8 @@ export function buildDefaultOrderColumns<T extends Order = Order>(options?: {
     },
     {
       key: 'totalCost',
-      header: 'Total Cost',
-      render: (order) => <span className="text-sm font-semibold text-ink">{order.totalCost != null ? `${Number(order.totalCost).toLocaleString(undefined, { maximumFractionDigits: 2 })} cr` : '—'}</span>,
+      header: 'TOTAL (credit)',
+      render: (order) => <span className="text-sm font-semibold text-ink">{order.totalCost != null ? Number(order.totalCost).toLocaleString(undefined, { maximumFractionDigits: 2 }) : '—'}</span>,
     },
     {
       key: 'orderStatus',

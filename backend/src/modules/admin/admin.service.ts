@@ -242,6 +242,28 @@ export class AdminService {
     }));
   }
 
+  async fetchRecentCreditTransactions(limit = 50) {
+    const rows = await this.txRepo.find({
+      relations: ['user'],
+      order: { createdAt: 'DESC' },
+      take: limit,
+    });
+
+    return rows.map((r) => ({
+      id: r.id,
+      user: {
+        id: r.user?.id,
+        email: r.user?.email ?? null,
+      },
+      amount: Number(r.amount),
+      direction: r.direction,
+      balanceAfter: Number(r.balanceAfter),
+      reason: r.reason ?? null,
+      reference: r.reference ?? null,
+      createdAt: r.createdAt,
+    }));
+  }
+
   async getAccountsSummary() {
     const [totalUsers, activeUsers, pendingUsers, disabledUsers, rejectedUsers] = await Promise.all([
       this.usersRepo.count(),

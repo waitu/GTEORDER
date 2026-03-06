@@ -74,9 +74,16 @@ export const OrdersFilterBar = ({
     onChange({ [field]: sanitized });
   };
 
+  const [searchInput, setSearchInput] = useState(values.search ?? '');
+
   const [open, setOpen] = useState(false);
   const popoverRef = useRef<HTMLDivElement | null>(null);
   const label = useMemo(() => formatRangeLabel(values.from, values.to), [values.from, values.to]);
+
+  const applySearch = () => {
+    if ((values.search ?? '') === searchInput) return;
+    handleChange('search', searchInput);
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -87,6 +94,14 @@ export const OrdersFilterBar = ({
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [open]);
+
+  useEffect(() => {
+    const next = values.search ?? '';
+    if (next !== searchInput) {
+      setSearchInput(next);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [values.search]);
 
   const applyDates = (from: string, to: string) => {
     handleChange('from', from);
@@ -108,14 +123,30 @@ export const OrdersFilterBar = ({
     <div className="flex flex-col gap-2.5 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
       <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
         <div className="flex flex-1 flex-col gap-2 md:flex-row md:items-center">
-          <input
-            type="search"
-            className="w-full max-w-xl rounded-md border border-slate-200 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500"
-            placeholder={searchPlaceholder ?? 'Search order ID or tracking code'}
-            value={values.search ?? ''}
-            disabled={disabled}
-            onChange={(event) => handleChange('search', event.target.value)}
-          />
+          <div className="flex w-full max-w-xl items-center gap-2">
+            <input
+              type="search"
+              className="w-full rounded-md border border-slate-200 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500"
+              placeholder={searchPlaceholder ?? 'Search order ID or tracking code'}
+              value={searchInput}
+              disabled={disabled}
+              onChange={(event) => setSearchInput(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  applySearch();
+                }
+              }}
+            />
+            <button
+              type="button"
+              className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:border-slate-300 disabled:opacity-50"
+              disabled={disabled}
+              onClick={applySearch}
+            >
+              Search
+            </button>
+          </div>
           {showPageSize && (
             <div className="flex items-center gap-2 text-sm text-slate-600">
               <span className="hidden text-xs font-semibold uppercase tracking-wide text-slate-500 md:inline">Page size</span>

@@ -136,4 +136,11 @@ export class AdminController {
     const rows = await this.adminService.fetchUserCreditTransactions(id, 10);
     return rows;
   }
+
+  @Get('credit/transactions')
+  async getRecentCreditTransactions(@Query('limit') limitRaw?: string) {
+    const parsed = Number(limitRaw);
+    const limit = Number.isFinite(parsed) ? Math.min(Math.max(parsed, 1), 200) : 50;
+    return this.adminService.fetchRecentCreditTransactions(limit);
+  }
 }

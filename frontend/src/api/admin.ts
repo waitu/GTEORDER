@@ -56,6 +56,13 @@ export type BalanceTransaction = {
   createdAt: string;
 };
 
+export type AdminCreditTransaction = BalanceTransaction & {
+  user?: {
+    id?: string;
+    email?: string | null;
+  } | null;
+};
+
 export type CreditTopupStatus = 'pending' | 'approved' | 'rejected';
 export type CreditTopupMethod = 'pingpong_manual';
 
@@ -180,6 +187,13 @@ export const fetchAdminUser = async (id: string) => {
 
 export const fetchUserCreditHistory = async (id: string): Promise<BalanceTransaction[]> => {
   const { data } = await http.get<BalanceTransaction[]>(`/admin/users/${id}/credit/transactions`);
+  return data ?? [];
+};
+
+export const fetchRecentCreditTransactions = async (limit = 50): Promise<AdminCreditTransaction[]> => {
+  const { data } = await http.get<AdminCreditTransaction[]>('/admin/credit/transactions', {
+    params: { limit },
+  });
   return data ?? [];
 };
 

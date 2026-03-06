@@ -328,8 +328,8 @@ export const AdminOrdersPage = () => {
       },
       {
         key: 'totalCost',
-        header: 'Total',
-        render: (order) => <span className="text-sm font-semibold text-ink">{order.totalCost != null ? `${Number(order.totalCost).toLocaleString(undefined, { maximumFractionDigits: 2 })} cr` : '—'}</span>,
+        header: 'TOTAL (credit)',
+        render: (order) => <span className="text-sm font-semibold text-ink">{order.totalCost != null ? Number(order.totalCost).toLocaleString(undefined, { maximumFractionDigits: 2 }) : '—'}</span>,
       },
       {
         key: 'orderStatus',
@@ -801,8 +801,9 @@ export const AdminOrdersPage = () => {
 
       <OrdersFilterBar
         values={queryState}
-        disabled={isFetching}
+        disabled={false}
         onChange={handleFiltersChange}
+        showPageSize={false}
         searchPlaceholder={view === 'design' ? 'Search design orders' : 'Search order ID, tracking code, or user email'}
         showReset={hasActiveFilters}
         onReset={handleResetFilters}
@@ -880,7 +881,22 @@ export const AdminOrdersPage = () => {
             <span>
               Page {currentPage} of {totalPages} · {totalCount} orders total
             </span>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-3">
+              <label className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                Page size
+                <select
+                  className="w-20 rounded-lg border border-slate-200 px-2 py-1.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                  value={queryState.limit ?? DEFAULT_LIMIT}
+                  disabled={isFetching}
+                  onChange={(event) => handleFiltersChange({ limit: Number(event.target.value) })}
+                >
+                  {[20, 50, 100, 200].map((option) => (
+                    <option key={option} value={option}>
+                      {option}/p
+                    </option>
+                  ))}
+                </select>
+              </label>
               <button
                 className="rounded-lg border border-slate-200 px-3 py-1 disabled:opacity-50"
                 disabled={currentPage <= 1 || isFetching}

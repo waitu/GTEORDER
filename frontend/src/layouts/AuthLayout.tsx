@@ -11,7 +11,7 @@ export const AuthLayout = ({ title, children }: { title: string; children: React
         <div className="w-full max-w-md rounded-2xl border border-slate-100 bg-white p-8 shadow-card">
           <div className="mb-6 flex items-center justify-between">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wider text-sky-600">sclabel.io</p>
+              <img src="/logo.png" alt="SCLabel" className="mb-2 h-8 w-auto" />
               <h1 className="text-2xl font-bold text-ink">{title}</h1>
             </div>
             <Link to="/" className="text-sm font-semibold text-slate-600 hover:text-ink">
