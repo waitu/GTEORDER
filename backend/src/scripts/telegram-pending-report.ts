@@ -4,6 +4,8 @@ import { Client } from 'pg';
 const TZ = 'Asia/Ho_Chi_Minh';
 const DEFAULT_CRON = '0 21 * * *';
 const TELEGRAM_MAX_MESSAGE_LENGTH = 3500;
+const TELEGRAM_REQUEST_TIMEOUT_MS = Number(process.env.TELEGRAM_REQUEST_TIMEOUT_MS ?? 20000);
+const TELEGRAM_SEND_RETRIES = Math.max(1, Number(process.env.TELEGRAM_SEND_RETRIES ?? 3));
 
 type PendingOrderRow = {
   id: string;
@@ -24,6 +26,8 @@ const getEnv = (key: string, required = true): string => {
   }
   return value ?? '';
 };
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const escapeHtml = (input: string): string =>
   input
@@ -131,16 +135,36 @@ const sendTelegramMessage = async (target: TelegramTarget, text: string) => {
     payload.message_thread_id = target.threadId;
   }
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= TELEGRAM_SEND_RETRIES; attempt += 1) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TELEGRAM_REQUEST_TIMEOUT_MS);
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
 
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(`Telegram sendMessage failed: ${response.status} ${detail}`);
+      if (!response.ok) {
+        const detail = await response.text();
+        throw new Error(`Telegram sendMessage failed: ${response.status} ${detail}`);
+      }
+
+      clearTimeout(timer);
+      return;
+    } catch (error) {
+      clearTimeout(timer);
+      lastError = error;
+      if (attempt >= TELEGRAM_SEND_RETRIES) break;
+      const waitMs = 1000 * attempt;
+      console.error(`[telegram-pending-report] send attempt ${attempt} failed, retrying in ${waitMs}ms`, error);
+      await sleep(waitMs);
+    }
   }
+
+  throw lastError instanceof Error ? lastError : new Error('Telegram sendMessage failed');
 };
 
 const resolveTelegramTarget = async (): Promise<TelegramTarget> => {
@@ -183,12 +207,16 @@ const resolveTelegramTarget = async (): Promise<TelegramTarget> => {
 };
 
 const runOnce = async () => {
+  const startedAt = new Date();
+  console.log(`[telegram-pending-report] Run started at ${startedAt.toISOString()}`);
   const target = await resolveTelegramTarget();
   const orders = await fetchPendingOrders();
   const messages = buildMessages(orders);
+  console.log(`[telegram-pending-report] Pending orders: ${orders.length}; messages: ${messages.length}`);
   for (const message of messages) {
     await sendTelegramMessage(target, message);
   }
+  console.log(`[telegram-pending-report] Run completed at ${new Date().toISOString()}`);
 };
 
 const main = async () => {
@@ -206,6 +234,7 @@ const main = async () => {
   cron.schedule(
     cronExpr,
     () => {
+      console.log(`[telegram-pending-report] Cron triggered at ${new Date().toISOString()}`);
       runOnce().catch((err) => {
         // eslint-disable-next-line no-console
         console.error('[telegram-pending-report] Failed:', err);

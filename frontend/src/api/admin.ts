@@ -180,9 +180,15 @@ export const rejectRegistrationRequest = async (id: string, reason: string) => {
   await http.post(`/admin/registration-requests/${id}/reject`, { reason });
 };
 
-export const fetchAuditLogs = async () => {
-  const { data } = await http.get<AuditLog[]>('/admin/audits');
-  return data ?? [];
+export const fetchAuditLogs = async (): Promise<AuditLog[]> => {
+  const { data } = await http.get<AuditLog[] | { data?: AuditLog[]; logs?: AuditLog[]; items?: AuditLog[] }>('/admin/audits');
+
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.data)) return data.data;
+  if (Array.isArray(data?.logs)) return data.logs;
+  if (Array.isArray(data?.items)) return data.items;
+
+  return [];
 };
 
 export const fetchAdminOverview = async () => {
