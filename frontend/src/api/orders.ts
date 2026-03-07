@@ -29,6 +29,7 @@ export type Order = {
     firstCheckpointAt?: string | null;
     errorCode?: string | null;
     errorReason?: string | null;
+    isDuplicateTracking?: boolean;
     createdAt: string;
     updatedAt: string;
     user?: {
@@ -67,6 +68,10 @@ export type OrdersSummaryResponse = {
     errorCount: number;
 };
 
+export type OrdersSummaryQueryParams = Omit<OrdersQueryParams, 'page' | 'limit'> & {
+    view?: 'standard' | 'design';
+};
+
 const normalizeDateParam = (value?: string | null) => {
     if (!value) return undefined;
     const date = new Date(value);
@@ -97,9 +102,14 @@ export const fetchOrders = async (params: OrdersQueryParams = {}): Promise<Order
     return data;
 };
 
-export const fetchOrdersSummary = async (view: 'standard' | 'design'): Promise<OrdersSummaryResponse> => {
+export const fetchOrdersSummary = async (params: OrdersSummaryQueryParams = {}): Promise<OrdersSummaryResponse> => {
+    const query = serializeOrdersQueryParams(params);
+    delete query.page;
+    delete query.limit;
+    if (params.view) query.view = params.view;
+
     const { data } = await http.get<OrdersSummaryResponse>('/orders/summary', {
-        params: { view },
+        params: query,
     });
     return data;
 };

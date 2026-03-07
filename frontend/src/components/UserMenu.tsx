@@ -28,14 +28,13 @@ export const UserMenu = ({ email, role, onLogout }: UserMenuProps) => {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50"
+        className="inline-flex items-center gap-1 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50"
         aria-haspopup="menu"
         aria-expanded={open}
       >
         <span className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-900 text-sm font-bold text-white">
           {initialFromEmail(email)}
         </span>
-        <span className="hidden sm:inline">{email ?? 'Account'}</span>
         <span className="text-xs text-slate-500">▼</span>
       </button>
 

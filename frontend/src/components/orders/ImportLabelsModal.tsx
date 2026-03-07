@@ -11,6 +11,7 @@ export type ImportRow = {
   labelFileUrl?: string;
   serviceType?: 'scan' | 'active' | 'empty';
   trackingNumber?: string;
+  warning?: string;
   status: 'valid' | 'invalid';
   error?: string;
   source: 'excel';
@@ -131,6 +132,7 @@ export const ImportLabelsModal = ({ open, onClose, onSubmit, isSubmitting, defau
   const validCount = rows.filter((r) => r.status === 'valid').length;
   const totalCount = rows.length;
   const errorCount = rows.filter((r) => r.status === 'invalid').length;
+  const warningCount = rows.filter((r) => r.status === 'valid' && !!r.warning).length;
   const canSubmit = totalCount > 0 && errorCount === 0 && !isSubmitting && totalCount <= MAX_IMPORT_ROWS;
   const estimatedCredits = rows.reduce((sum, r) => {
     if (r.status !== 'valid') return sum;
@@ -166,7 +168,7 @@ export const ImportLabelsModal = ({ open, onClose, onSubmit, isSubmitting, defau
       }
       setPreviewId(data.previewId ?? null);
       setServerResult(data);
-      const mapped: ImportRow[] = (data.previewSample ?? []).map((r: any, idx: number) => {
+      const mapped: ImportRow[] = (data.previewSample ?? []).map((r: any) => {
         const serviceText = String(r.serviceType ?? '').toLowerCase();
         const serviceType: ImportRow['serviceType'] = serviceText.includes('active')
           ? 'active'
@@ -175,17 +177,26 @@ export const ImportLabelsModal = ({ open, onClose, onSubmit, isSubmitting, defau
             : serviceText.includes('scan')
               ? 'scan'
               : undefined;
-        return validateRow({
+        return {
           id: makeId(),
           labelFileUrl: r.labelFileUrl ?? undefined,
           serviceType,
           trackingNumber: r.trackingNumber ? String(r.trackingNumber) : undefined,
+          warning: r.warning ? String(r.warning) : undefined,
           status: r.status === 'valid' ? 'valid' : 'invalid',
-          error: r.error,
+          error: r.error ? String(r.error) : undefined,
           source: 'excel',
-        });
+        };
       });
       setRows(mapped);
+      const duplicateWarnings = Number(data?.duplicateWarnings ?? mapped.filter((row) => row.status === 'valid' && !!row.warning).length);
+      if (duplicateWarnings > 0) {
+        showToast({
+          type: 'info',
+          title: 'Duplicate tracking detected',
+          message: `${duplicateWarnings} row(s) have duplicate tracking warnings. You can still import them.`,
+        });
+      }
     } catch (err: any) {
       setError(err?.message || 'Could not parse the spreadsheet.');
     }
@@ -206,7 +217,10 @@ export const ImportLabelsModal = ({ open, onClose, onSubmit, isSubmitting, defau
       showToast({
         type: 'success',
         title: 'Import completed',
-        message: `Imported ${data.created ?? 0} labels, failed ${data.failed ?? 0}`,
+        message:
+          Number(data.duplicateWarnings ?? 0) > 0
+            ? `Imported ${data.created ?? 0} labels, failed ${data.failed ?? 0}, duplicate warnings ${data.duplicateWarnings ?? 0}`
+            : `Imported ${data.created ?? 0} labels, failed ${data.failed ?? 0}`,
       });
       // Invalidate orders queries so Orders page refreshes (non-exact to include filtered keys)
       void queryClient.invalidateQueries({ queryKey: ['orders'], exact: false });
@@ -242,6 +256,9 @@ export const ImportLabelsModal = ({ open, onClose, onSubmit, isSubmitting, defau
               </div>
               <div className="mt-1">
                 Failed: <span className="font-semibold">{serverResult.failed ?? 0}</span>
+              </div>
+              <div className="mt-1">
+                Duplicate warnings: <span className="font-semibold">{serverResult.duplicateWarnings ?? 0}</span>
               </div>
               {(serverResult.paidOrderIds || serverResult.unpaidOrderIds) && (
                 <div className="mt-3">
@@ -356,6 +373,9 @@ export const ImportLabelsModal = ({ open, onClose, onSubmit, isSubmitting, defau
             <div className="flex flex-col gap-3 pb-2 md:flex-row md:items-center md:justify-between">
               <div className="text-sm text-slate-700">
                 Valid rows: <span className="font-semibold text-emerald-700">{validCount}</span> · Errors: <span className="font-semibold text-rose-700">{errorCount}</span> · Total: <span className="font-semibold">{totalCount}</span>
+                {warningCount > 0 && (
+                  <span className="ml-3">Warnings: <span className="font-semibold text-amber-700">{warningCount}</span></span>
+                )}
                 {validCount > 0 && (
                   <span className="ml-3 text-slate-600">Estimated credits: <span className="font-semibold">{estimatedCredits.toFixed(2)}</span></span>
                 )}
@@ -369,13 +389,14 @@ export const ImportLabelsModal = ({ open, onClose, onSubmit, isSubmitting, defau
                     <th className="px-3 py-2 text-left">Label URL</th>
                     <th className="px-3 py-2 text-left">Service Type</th>
                     <th className="px-3 py-2 text-left">Tracking Number</th>
+                    <th className="px-3 py-2 text-left">Warning</th>
                     <th className="px-3 py-2 text-left">Status</th>
                   </tr>
                 </thead>
                 <tbody>
                   {rows.map((row) => {
                     return (
-                      <tr key={row.id} className={row.status === 'invalid' ? 'bg-rose-50' : 'bg-white'}>
+                      <tr key={row.id} className={row.status === 'invalid' ? 'bg-rose-50' : row.warning ? 'bg-amber-50' : 'bg-white'}>
                         <td className="px-3 py-2 align-middle">
                           {row.labelFileUrl ? (
                             <a className="text-sm text-sky-700 hover:underline" href={row.labelFileUrl} target="_blank" rel="noreferrer">
@@ -390,6 +411,13 @@ export const ImportLabelsModal = ({ open, onClose, onSubmit, isSubmitting, defau
                         </td>
                         <td className="px-3 py-2 align-middle">
                           <span className="text-sm text-slate-700">{row.trackingNumber ?? '—'}</span>
+                        </td>
+                        <td className="px-3 py-2 align-middle">
+                          {row.warning ? (
+                            <span className="inline-flex items-center rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">{row.warning}</span>
+                          ) : (
+                            <span className="text-sm text-slate-400">—</span>
+                          )}
                         </td>
                         <td className="px-3 py-2 align-middle">
                           {row.status === 'valid' ? (
@@ -411,7 +439,7 @@ export const ImportLabelsModal = ({ open, onClose, onSubmit, isSubmitting, defau
 
             <div className="mt-6 flex flex-col gap-3 border-t border-slate-100 pt-4 md:flex-row md:items-center md:justify-between">
           <div className="text-sm text-slate-700">
-            {totalCount === 0 ? 'No rows uploaded yet.' : `${validCount} valid · ${errorCount} errors · ${totalCount} total`}
+            {totalCount === 0 ? 'No rows uploaded yet.' : `${validCount} valid · ${errorCount} errors · ${warningCount} warnings · ${totalCount} total`}
           </div>
           <div className="flex gap-2">
             <button

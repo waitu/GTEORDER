@@ -165,6 +165,7 @@ type OrdersTableProps<T extends Order = Order> = {
   selectedIds?: Set<string>;
   onToggleRow?: (id: string, checked: boolean) => void;
   onToggleAll?: (checked: boolean) => void;
+  showSelection?: boolean;
 };
 
 export function buildDefaultOrderColumns<T extends Order = Order>(options?: {
@@ -243,19 +244,26 @@ export function buildDefaultOrderColumns<T extends Order = Order>(options?: {
       header: 'Tracking Code',
       render: (order) =>
         order.trackingCode ? (
-          <button
-            type="button"
-            className="font-mono text-base font-semibold text-slate-900 underline-offset-4 hover:text-slate-600 hover:underline"
-            title="Click to copy tracking"
-            onClick={async (event) => {
-              event.stopPropagation();
-              const value = order.trackingCode ?? '';
-              const copied = await copyText(value);
-              options?.onCopyTrackingCode?.(value, copied);
-            }}
-          >
-            {order.trackingCode}
-          </button>
+          <div className="group relative inline-flex items-center">
+            <button
+              type="button"
+              className={`font-mono text-base font-semibold underline-offset-4 hover:text-slate-600 hover:underline ${order.isDuplicateTracking ? 'rounded bg-amber-100 px-1.5 py-0.5 text-amber-900' : 'text-slate-900'}`}
+              title={order.isDuplicateTracking ? 'Duplicate tracking detected' : 'Click to copy tracking'}
+              onClick={async (event) => {
+                event.stopPropagation();
+                const value = order.trackingCode ?? '';
+                const copied = await copyText(value);
+                options?.onCopyTrackingCode?.(value, copied);
+              }}
+            >
+              {order.trackingCode}
+            </button>
+            {order.isDuplicateTracking && (
+              <span className="pointer-events-none absolute -top-5 right-0 z-10 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-800 opacity-0 shadow-sm transition-opacity duration-150 group-hover:opacity-100">
+                Duplicate
+              </span>
+            )}
+          </div>
         ) : (
           <span className="text-slate-400">—</span>
         ),
@@ -478,6 +486,7 @@ export const OrdersTable = <T extends Order = Order>({
   selectedIds: selectedIdsProp,
   onToggleRow: onToggleRowProp,
   onToggleAll: onToggleAllProp,
+  showSelection = true,
 }: OrdersTableProps<T>) => {
   const { showToast } = useToast();
   const [assetPreview, setAssetPreview] = useState<{ open: boolean; images: string[]; others: string[] }>({ open: false, images: [], others: [] });
@@ -554,7 +563,7 @@ export const OrdersTable = <T extends Order = Order>({
         onRowClick={onRowClick}
         emptyMessage="No orders found"
         columns={resolvedColumns}
-        selectable
+        selectable={showSelection}
         selectedIds={selectedIds}
         onToggleRow={toggleRow}
         onToggleAll={toggleAll}

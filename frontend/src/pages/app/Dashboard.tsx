@@ -26,7 +26,7 @@ export const DashboardPage = () => {
             <button
               type="button"
               className="rounded-xl border border-slate-200 bg-white p-5 text-left shadow-sm hover:border-slate-300"
-              onClick={() => navigate('/orders?orderType=active_tracking')}
+              onClick={() => navigate('/trackings')}
             >
               <p className="text-sm font-semibold text-slate-600">Active Trackings</p>
               <p className="mt-2 text-2xl font-bold text-ink">{summary?.activeTrackings ?? '—'}</p>
@@ -34,7 +34,7 @@ export const DashboardPage = () => {
             <button
               type="button"
               className="rounded-xl border border-slate-200 bg-white p-5 text-left shadow-sm hover:border-slate-300"
-              onClick={() => navigate('/orders?orderType=empty_package')}
+              onClick={() => navigate('/empty-orders')}
             >
               <p className="text-sm font-semibold text-slate-600">Empty Package</p>
               <p className="mt-2 text-2xl font-bold text-ink">{summary?.emptyOrders ?? '—'}</p>

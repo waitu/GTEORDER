@@ -17,17 +17,18 @@ export class OrdersController {
   @Get()
   async listOrders(@Req() req: Request & { user?: any }, @Query() query: ListOrdersDto) {
     const userId = req.user?.sub;
-    return this.ordersService.listOrders({ ...query, userId });
+    return this.ordersService.listOrders({ ...query, userId }, { includeDuplicateTrackingHint: true, duplicateScope: 'user' });
   }
 
   @Get('summary')
-  async summary(@Req() req: Request & { user?: any }, @Query('view') view?: string) {
+  async summary(@Req() req: Request & { user?: any }, @Query() query: ListOrdersDto) {
     const userId = req.user?.sub;
-    const filters: ListOrdersDto = { userId };
+    const filters: ListOrdersDto = { ...query, userId };
 
-    if (view === 'design') {
+    if (query.view === 'design') {
       filters.orderType = OrderType.DESIGN;
-    } else {
+      filters.excludeDesign = undefined;
+    } else if (query.view === 'standard') {
       filters.excludeDesign = true;
     }
 

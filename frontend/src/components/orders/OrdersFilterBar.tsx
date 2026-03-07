@@ -13,6 +13,8 @@ type OrdersFilterBarProps = {
   orderTypeDisabled?: boolean;
   hideOrderType?: boolean;
   designSubtypeOptions?: { label: string; value: string }[];
+  collapsible?: boolean;
+  defaultCollapsed?: boolean;
 };
 
 const defaultTypeOptions = [
@@ -68,6 +70,8 @@ export const OrdersFilterBar = ({
   orderTypeDisabled,
   hideOrderType,
   designSubtypeOptions,
+  collapsible = false,
+  defaultCollapsed = false,
 }: OrdersFilterBarProps) => {
   const handleChange = (field: keyof OrdersQueryParams, value: string) => {
     const sanitized = value || undefined;
@@ -75,6 +79,7 @@ export const OrdersFilterBar = ({
   };
 
   const [searchInput, setSearchInput] = useState(values.search ?? '');
+  const [isCollapsed, setIsCollapsed] = useState(defaultCollapsed);
 
   const [open, setOpen] = useState(false);
   const popoverRef = useRef<HTMLDivElement | null>(null);
@@ -121,6 +126,46 @@ export const OrdersFilterBar = ({
 
   return (
     <div className="flex flex-col gap-2.5 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
+      {collapsible && (
+        <div className="flex items-center justify-end">
+          <button
+            type="button"
+            className={`inline-flex h-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-700 hover:border-slate-300 disabled:opacity-50 ${
+              isCollapsed ? 'w-8' : 'w-9'
+            }`}
+            onClick={() => setIsCollapsed((prev) => !prev)}
+            disabled={disabled}
+            aria-label={isCollapsed ? 'Show filters' : 'Hide filters'}
+            title={isCollapsed ? 'Show filters' : 'Hide filters'}
+          >
+            {isCollapsed ? (
+              <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">
+                <path
+                  d="M4 6h16M7 12h10M10 18h4"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                />
+              </svg>
+            ) : (
+              <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">
+                <path
+                  d="M5 7h14l-5.5 6v4l-3 1v-5L5 7Z"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            )}
+          </button>
+        </div>
+      )}
+
+      {!isCollapsed && (
+        <>
       <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
         <div className="flex flex-1 flex-col gap-2 md:flex-row md:items-center">
           <div className="flex w-full max-w-xl items-center gap-2">
@@ -312,6 +357,8 @@ export const OrdersFilterBar = ({
           )}
         </div>
       </div>
+        </>
+      )}
     </div>
   );
 };

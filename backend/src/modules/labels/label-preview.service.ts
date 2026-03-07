@@ -8,6 +8,7 @@ type PreviewRow = {
   labelFileUrl: string;
   serviceType: LabelServiceType;
   trackingNumber?: string | null;
+  warning?: string;
   carrier?: string | null;
   clientRequestId?: string | null;
   sourceFileName?: string | null;

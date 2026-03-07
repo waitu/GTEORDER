@@ -77,14 +77,12 @@ export class DashboardController {
         .where('o.user_id = :userId', { userId })
         .andWhere('o.order_type = :type', { type: OrderType.ACTIVE_TRACKING })
         .andWhere('o.archived = false')
-        .andWhere('o.order_status IN (:...statuses)', { statuses: [OrderStatus.PENDING, OrderStatus.PROCESSING] })
         .getCount(),
       this.ordersRepo
         .createQueryBuilder('o')
         .where('o.user_id = :userId', { userId })
         .andWhere('o.order_type = :type', { type: OrderType.EMPTY_PACKAGE })
         .andWhere('o.archived = false')
-        .andWhere('o.order_status IN (:...statuses)', { statuses: [OrderStatus.PENDING, OrderStatus.PROCESSING] })
         .getCount(),
       this.balanceService.getBalance(userId),
     ]);

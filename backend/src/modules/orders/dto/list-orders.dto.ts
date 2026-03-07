@@ -40,7 +40,7 @@ export class ListOrdersDto {
   @Transform(({ value }) => (value ? Number(value) : undefined))
   @IsInt()
   @Min(1)
-  @Max(200)
+  @Max(2000)
   limit?: number;
 
   @IsOptional()

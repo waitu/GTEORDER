@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query, UseGuards, UploadedFile, UseInterceptors, Req } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Query, UseGuards, UploadedFile, UseInterceptors, Req } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Request } from 'express';
 
@@ -18,7 +18,7 @@ export class AdminOrdersController {
   @Get()
   async listOrders(@Query() query: ListOrdersDto, @Query('view') view?: string) {
     const normalized: ListOrdersDto = { ...query, excludeDesign: view === 'standard' ? true : query.excludeDesign };
-    return this.ordersService.listOrders(normalized, { includeUserEmail: true });
+    return this.ordersService.listOrders(normalized, { includeUserEmail: true, includeDuplicateTrackingHint: true });
   }
 
   @Get('summary')
@@ -50,6 +50,12 @@ export class AdminOrdersController {
   async updateNote(@Param('id', new ParseUUIDPipe()) id: string, @Body() body: UpdateAdminNoteDto) {
     return this.ordersService.updateAdminNote(id, body.adminNote ?? null);
   }
+
+  @Delete(':id')
+  async deleteOrder(@Param('id', new ParseUUIDPipe()) id: string) {
+    return this.ordersService.deleteOrder(id);
+  }
+
   @Post('bulk/start')
   async bulkStart(@Body() body: { ids: string[]; uploadTrackingPdf?: boolean }) {
     return this.ordersService.bulkStartProcessingAction(body.ids || [], {

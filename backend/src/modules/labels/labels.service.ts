@@ -30,6 +30,7 @@ type ParsedRow = {
   labelFileUrl: string;
   serviceType: LabelServiceType;
   trackingNumber?: string | null;
+  warning?: string;
   carrier?: string | null;
   clientRequestId?: string | null;
   sourceFileName?: string | null;
@@ -46,6 +47,19 @@ export class LabelsService {
     private readonly storage: LabelStorageService,
     private readonly ordersService: OrdersService,
   ) {}
+
+  private normalizeTrackingCode(value?: string | null): string {
+    return String(value ?? '')
+      .trim()
+      .replace(/\s+/g, '')
+      .toLowerCase();
+  }
+
+  private sanitizeTrackingNumber(value?: string | null): string {
+    return String(value ?? '')
+      .trim()
+      .replace(/\s+/g, '');
+  }
 
   private normalizeServiceType(value?: string | null): LabelServiceType | null {
     if (!value) return null;
@@ -66,6 +80,10 @@ export class LabelsService {
   }
 
   private validateRow(base: ParsedRow): ParsedRow {
+    const sanitizedTrackingNumber = this.sanitizeTrackingNumber(base.trackingNumber);
+    const looksLikeScientificNumber = /^[+-]?\d+(?:\.\d+)?e[+-]?\d+$/i.test(sanitizedTrackingNumber);
+    const looksLikeDecimalNumber = /^\d+\.\d+$/.test(sanitizedTrackingNumber);
+
     if (!base.serviceType) {
       return { ...base, status: 'invalid', error: 'serviceType required' };
     }
@@ -73,13 +91,24 @@ export class LabelsService {
       return { ...base, status: 'invalid', error: 'labelFileUrl required' };
     }
     // Carrier is fixed to USPS; users no longer provide it.
-    const withCarrier: ParsedRow = { ...base, carrier: (base.carrier?.trim() ? base.carrier : 'USPS') };
+    const withCarrier: ParsedRow = {
+      ...base,
+      trackingNumber: sanitizedTrackingNumber || null,
+      carrier: (base.carrier?.trim() ? base.carrier : 'USPS'),
+    };
     // Scan is temporarily disabled.
     if (withCarrier.serviceType === LabelServiceType.SCAN) {
       return { ...withCarrier, status: 'invalid', error: 'Scan is temporarily disabled' };
     }
     if (!withCarrier.trackingNumber?.trim()) {
       return { ...withCarrier, status: 'invalid', error: 'trackingNumber required' };
+    }
+    if (looksLikeScientificNumber || looksLikeDecimalNumber) {
+      return {
+        ...withCarrier,
+        status: 'invalid',
+        error: 'trackingNumber appears to be a numeric/scientific value from Excel. Please format the column as Text and re-export.',
+      };
     }
     return { ...withCarrier, status: 'valid', error: undefined };
   }
@@ -278,19 +307,50 @@ export class LabelsService {
       });
     });
 
-    const preview = this.previewService.createPreview(userId, parsed);
-    const validCount = parsed.filter((p) => p.status === 'valid').length;
-    const errors = parsed
+    const validTrackingCodes = parsed
+      .filter((row) => row.status === 'valid')
+      .map((row) => this.normalizeTrackingCode(row.trackingNumber))
+      .filter((code) => code.length > 0);
+
+    const trackingCountMap = validTrackingCodes.reduce<Record<string, number>>((acc, code) => {
+      acc[code] = (acc[code] ?? 0) + 1;
+      return acc;
+    }, {});
+
+    const duplicateInDbCodes = await this.ordersService.findDuplicateTrackingCodes(validTrackingCodes);
+
+    const parsedWithWarnings = parsed.map((row) => {
+      if (row.status !== 'valid') return row;
+      const code = this.normalizeTrackingCode(row.trackingNumber);
+      if (!code) return row;
+
+      const warningParts: string[] = [];
+      if ((trackingCountMap[code] ?? 0) > 1) {
+        warningParts.push('Duplicate in uploaded file');
+      }
+      if (duplicateInDbCodes.has(code)) {
+        warningParts.push('Already exists in system');
+      }
+
+      if (warningParts.length === 0) return row;
+      return { ...row, warning: warningParts.join(' · ') };
+    });
+
+    const preview = this.previewService.createPreview(userId, parsedWithWarnings);
+    const validCount = parsedWithWarnings.filter((p) => p.status === 'valid').length;
+    const duplicateWarnings = parsedWithWarnings.filter((p) => p.status === 'valid' && !!p.warning).length;
+    const errors = parsedWithWarnings
       .map((p, idx) => ({ ...p, index: idx }))
       .filter((p) => p.status === 'invalid')
       .map((p) => ({ row: p.index + 1, reason: p.error ?? 'Invalid row' }));
 
     return {
       previewId: preview.id,
-      total: parsed.length,
+      total: parsedWithWarnings.length,
       validCount,
+      duplicateWarnings,
       errors,
-      previewSample: parsed,
+      previewSample: parsedWithWarnings,
     };
   }
 
@@ -303,9 +363,11 @@ export class LabelsService {
     const unpaidOrderIds: string[] = [];
     let created = 0;
     let failed = 0;
+    let duplicateWarnings = 0;
 
     let exhausted = false;
     for (const row of preview.rows) {
+      if (row.warning) duplicateWarnings += 1;
       if (row.status === 'invalid') {
         failed += 1;
         continue;
@@ -370,7 +432,7 @@ export class LabelsService {
 
     await this.previewService.delete(previewId);
 
-    return { created, failed, labelIds, paidOrderIds, unpaidOrderIds };
+    return { created, failed, duplicateWarnings, labelIds, paidOrderIds, unpaidOrderIds };
   }
 
   async adminList(dto: AdminListLabelsDto) {

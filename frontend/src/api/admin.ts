@@ -320,6 +320,11 @@ export const updateAdminNote = async (id: string, adminNote: string): Promise<Ad
   return data;
 };
 
+export const deleteAdminOrder = async (id: string): Promise<{ id: string; deleted: true }> => {
+  const { data } = await http.delete<{ id: string; deleted: true }>(`/admin/orders/${id}`);
+  return data;
+};
+
 export const startAdminOrder = async (id: string, options?: { uploadTrackingPdf?: boolean }) => {
   const { data } = await http.post<StartProcessingResponse>(`/admin/orders/${id}/start`, {
     uploadTrackingPdf: Boolean(options?.uploadTrackingPdf),

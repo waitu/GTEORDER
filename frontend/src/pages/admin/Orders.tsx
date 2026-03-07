@@ -22,17 +22,17 @@ import {
   updateAdminNote,
   startAdminOrder,
   bulkStartOrders,
-  bulkFailOrders,
-  bulkArchiveOrders,
+  deleteAdminOrder,
 } from '../../api/admin';
-import BulkFailModal from '../../components/admin/BulkFailModal';
 import { OrderStatus, OrdersQueryParams, PaymentStatus } from '../../api/orders';
 import { useToast } from '../../context/ToastProvider';
 
 const ORDER_TYPE_FILTERS = ['active_tracking', 'empty_package', 'design'] as const;
 const ORDER_STATUS_FILTERS = ['pending', 'processing', 'completed', 'failed'] as const;
 const PAYMENT_STATUS_FILTERS = ['unpaid', 'paid'] as const;
-const DEFAULT_LIMIT = 20;
+const DEFAULT_LIMIT = 50;
+const PAGE_SIZE_OPTIONS = [50, 500, 1000, 2000] as const;
+const PAGE_SIZE_STORAGE_KEY = 'orders.pageSize.admin';
 const EXPORT_PAGE_SIZE = 200;
 const FILTERABLE_KEYS: (keyof OrdersQueryParams)[] = ['orderType', 'orderStatus', 'paymentStatus', 'search', 'from', 'to', 'limit', 'designSubtype'];
 
@@ -64,6 +64,12 @@ const coerceNumber = (value: string | null, fallback: number): number => {
   if (!value) return fallback;
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+};
+
+const getStoredPageSize = () => {
+  if (typeof window === 'undefined') return DEFAULT_LIMIT;
+  const stored = Number(window.localStorage.getItem(PAGE_SIZE_STORAGE_KEY));
+  return PAGE_SIZE_OPTIONS.includes(stored as (typeof PAGE_SIZE_OPTIONS)[number]) ? stored : DEFAULT_LIMIT;
 };
 
 const detailQueryKey = (id: string) => ['admin', 'orders', 'detail', id] as const;
@@ -164,6 +170,8 @@ export const AdminOrdersPage = () => {
   const [exportTo, setExportTo] = useState('');
   const [exportStatus, setExportStatus] = useState<OrderStatus | 'all'>('all');
   const [exportError, setExportError] = useState<string | null>(null);
+  const initialLimit = useMemo(() => getStoredPageSize(), []);
+  const [isFilterVisible, setIsFilterVisible] = useState(false);
   const [pendingPaymentChange, setPendingPaymentChange] = useState<{ orderId: string; paymentStatus: PaymentStatus } | null>(null);
   const view: OrdersView = searchParams.get('view') === 'design' ? 'design' : 'standard';
 
@@ -177,7 +185,7 @@ export const AdminOrdersPage = () => {
       to: searchParams.get('to') ?? undefined,
       designSubtype: searchParams.get('designSubtype') ?? undefined,
       page: coerceNumber(searchParams.get('page'), 1),
-      limit: coerceNumber(searchParams.get('limit'), DEFAULT_LIMIT),
+      limit: coerceNumber(searchParams.get('limit'), initialLimit),
     };
     if (view === 'design') {
       return { ...base, orderType: 'design' };
@@ -185,7 +193,14 @@ export const AdminOrdersPage = () => {
     const { designSubtype, ...rest } = base;
     const normalized = base.orderType === 'design' ? { ...rest, orderType: undefined } : rest;
     return normalized;
-  }, [searchParams]);
+  }, [initialLimit, searchParams]);
+
+  useEffect(() => {
+    const limit = queryState.limit;
+    if (!PAGE_SIZE_OPTIONS.includes((limit ?? DEFAULT_LIMIT) as (typeof PAGE_SIZE_OPTIONS)[number])) return;
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(PAGE_SIZE_STORAGE_KEY, String(limit ?? DEFAULT_LIMIT));
+  }, [queryState.limit]);
 
   const ordersQueryKey = ['admin', 'orders', view, queryState] as const;
 
@@ -394,19 +409,26 @@ export const AdminOrdersPage = () => {
           order.orderType === 'design' ? (
             <span className="text-xs text-slate-400">—</span>
           ) : order.trackingCode ? (
-            <button
-              type="button"
-              className="font-mono text-sm text-slate-900 underline-offset-4 hover:text-slate-600 hover:underline"
-              title="Click to copy tracking"
-              onClick={async (event) => {
-                event.stopPropagation();
-                const copied = await copyText(order.trackingCode ?? '');
-                if (copied) setToast(`Copied Tracking Code: ${order.trackingCode}`);
-                else setToast('Could not copy Tracking Code.');
-              }}
-            >
-              {order.trackingCode}
-            </button>
+            <div className="group relative inline-flex items-center">
+              <button
+                type="button"
+                className={`font-mono text-sm underline-offset-4 hover:text-slate-600 hover:underline ${order.isDuplicateTracking ? 'rounded bg-amber-100 px-1.5 py-0.5 font-semibold text-amber-900' : 'text-slate-900'}`}
+                title={order.isDuplicateTracking ? 'Duplicate tracking detected' : 'Click to copy tracking'}
+                onClick={async (event) => {
+                  event.stopPropagation();
+                  const copied = await copyText(order.trackingCode ?? '');
+                  if (copied) setToast(`Copied Tracking Code: ${order.trackingCode}`);
+                  else setToast('Could not copy Tracking Code.');
+                }}
+              >
+                {order.trackingCode}
+              </button>
+              {order.isDuplicateTracking && (
+                <span className="pointer-events-none absolute -top-5 right-0 z-10 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-800 opacity-0 shadow-sm transition-opacity duration-150 group-hover:opacity-100">
+                  Duplicate
+                </span>
+              )}
+            </div>
           ) : (
             <span className="text-xs text-slate-400">—</span>
           ),
@@ -483,15 +505,26 @@ export const AdminOrdersPage = () => {
         key: 'actions',
         header: 'Actions',
         render: (order) => (
-          <button
-            className="rounded-lg border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-            onClick={(event) => {
-              event.stopPropagation();
-              setDetailId(order.id);
-            }}
-          >
-            View
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              className="rounded-lg border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+              onClick={(event) => {
+                event.stopPropagation();
+                setDetailId(order.id);
+              }}
+            >
+              View
+            </button>
+            <button
+              className="rounded-lg border border-rose-200 px-3 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-50"
+              onClick={(event) => {
+                event.stopPropagation();
+                setDeleteConfirmOrder(order);
+              }}
+            >
+              Delete
+            </button>
+          </div>
         ),
       },
     ];
@@ -642,7 +675,6 @@ export const AdminOrdersPage = () => {
 
   // Selection state for bulk actions
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [showFailModal, setShowFailModal] = useState(false);
   const [showBulkConfirm, setShowBulkConfirm] = useState(false);
   const [bulkStartWithUpload, setBulkStartWithUpload] = useState(false);
   const [bulkConfirmPayload, setBulkConfirmPayload] = useState<{
@@ -653,7 +685,7 @@ export const AdminOrdersPage = () => {
   const [showSingleConfirm, setShowSingleConfirm] = useState(false);
   const [singleStartWithUpload, setSingleStartWithUpload] = useState(false);
   const [singleConfirmPayload, setSingleConfirmPayload] = useState<null | { orderId: string; cost: number; balance: number; email?: string | null }>(null);
-  const [archiveConfirm, setArchiveConfirm] = useState<null | { ids: string[] }>(null);
+  const [deleteConfirmOrder, setDeleteConfirmOrder] = useState<AdminOrder | null>(null);
 
   const handleToggleRow = (id: string, checked: boolean) => {
     setSelectedIds((prev) => {
@@ -677,8 +709,6 @@ export const AdminOrdersPage = () => {
   const selectedOrders = filteredOrders.filter((o) => selectedIds.has(o.id));
 
   const canBulkStart = selectedOrders.length > 0 && selectedOrders.every((o) => o.orderStatus === 'pending');
-  const canBulkFail = selectedOrders.length > 0 && selectedOrders.every((o) => o.orderStatus === 'processing');
-  const canBulkArchive = selectedOrders.length > 0 && selectedOrders.every((o) => o.orderStatus === 'completed' || o.orderStatus === 'failed');
 
   // Bulk action mutations
   const bulkStartMutation = useMutation({
@@ -706,21 +736,11 @@ export const AdminOrdersPage = () => {
     onSettled: () => queryClient.invalidateQueries({ queryKey: ordersQueryKey }),
   });
 
-  const bulkFailMutation = useMutation({
-    mutationFn: (payload: { ids: string[]; note: string; refund: boolean }) => bulkFailOrders(payload.ids, payload.note, payload.refund),
-    onSuccess: () => {
-      setToast('Marked selected orders as failed');
-      clearSelection();
-      setShowFailModal(false);
-    },
-    onSettled: () => queryClient.invalidateQueries({ queryKey: ordersQueryKey }),
-  });
-
-  const bulkArchiveMutation = useMutation({
-    mutationFn: (ids: string[]) => bulkArchiveOrders(ids),
-    onSuccess: () => {
-      setToast('Archived selected orders');
-      clearSelection();
+  const deleteOrderMutation = useMutation({
+    mutationFn: (id: string) => deleteAdminOrder(id),
+    onSuccess: (_res, id) => {
+      if (detailId === id) setDetailId(null);
+      setToast('Order deleted');
     },
     onSettled: () => queryClient.invalidateQueries({ queryKey: ordersQueryKey }),
   });
@@ -782,22 +802,6 @@ export const AdminOrdersPage = () => {
     setShowBulkConfirm(true);
   };
 
-  const onBulkFailClick = () => {
-    if (selectedList.length === 0) return setToast('No orders selected');
-    if (!canBulkFail) return setToast('Can only mark failed orders that are in processing');
-    setShowFailModal(true);
-  };
-
-  const submitBulkFail = (adminNote: string, refund: boolean) => {
-    bulkFailMutation.mutate({ ids: selectedList, note: adminNote, refund }, { onError: (err) => setToast(`Failed to mark failed: ${(err as Error).message}`) });
-  };
-
-  const bulkArchive = () => {
-    if (selectedList.length === 0) return setToast('No orders selected');
-    if (!canBulkArchive) return setToast('Can only archive orders that are completed or failed');
-    setArchiveConfirm({ ids: selectedList });
-  };
-
   const totalCount = data?.meta.total ?? 0;
   const totalPages = data ? Math.max(1, Math.ceil(totalCount / (data.meta.limit ?? queryState.limit ?? DEFAULT_LIMIT))) : 1;
   const currentPage = data?.meta.page ?? queryState.page ?? 1;
@@ -818,42 +822,7 @@ export const AdminOrdersPage = () => {
 
   return (
     <AdminLayout title="Orders Management">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-2">
-          {[{ key: 'standard', label: 'Orders', value: 'standard' as OrdersView }, { key: 'design', label: 'Design Orders', value: 'design' as OrdersView }].map((tab) => {
-            const isActive = view === tab.value;
-            return (
-              <button
-                key={tab.key}
-                type="button"
-                onClick={() => switchView(tab.value)}
-                className={`flex items-center gap-2 rounded-lg border px-4 py-2 text-left text-sm font-semibold shadow-sm transition ${isActive ? 'border-slate-900 bg-slate-900 text-white shadow' : 'border-slate-200 bg-white text-slate-800 hover:border-slate-300'}`}
-              >
-                <span>{tab.label}</span>
-              </button>
-            );
-          })}
-        </div>
-        <button
-          type="button"
-          className={`inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-semibold shadow-sm ${
-            isExporting ? 'border-slate-200 text-slate-400' : 'border-slate-200 text-slate-800 hover:border-slate-300'
-          }`}
-          onClick={() => {
-            if (isExporting) return;
-            setExportError(null);
-            setExportFrom(queryState.from ?? '');
-            setExportTo(queryState.to ?? '');
-            setExportStatus(queryState.orderStatus ?? 'all');
-            setExportOpen(true);
-          }}
-          disabled={isExporting}
-        >
-          {isExporting ? 'Exporting…' : 'Export orders'}
-        </button>
-      </div>
-
-      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
         {[{
           label: 'Total orders',
           value: summary.total,
@@ -909,55 +878,118 @@ export const AdminOrdersPage = () => {
         ))}
       </div>
 
-      <OrdersFilterBar
-        values={queryState}
-        disabled={false}
-        onChange={handleFiltersChange}
-        showPageSize={false}
-        searchPlaceholder={view === 'design' ? 'Search design orders' : 'Search order ID, tracking code, or user email'}
-        showReset={hasActiveFilters}
-        onReset={handleResetFilters}
-        hideOrderType={view === 'design'}
-        orderTypeDisabled={view === 'design'}
-        orderTypeOptions={
-          view === 'design'
-            ? [{ label: 'Design orders', value: 'design' }]
-            : [
-                { label: 'All order types', value: '' },
-                { label: 'Active tracking', value: 'active_tracking' },
-                { label: 'Empty package', value: 'empty_package' },
-                { label: 'Other', value: 'other' },
-              ]
-        }
-        designSubtypeOptions={view === 'design' ? [{ label: 'All design subtypes', value: '' }, ...DESIGN_SUBTYPE_OPTIONS] : undefined}
-      />
+      <div className="mt-5 flex flex-wrap items-center gap-2">
+        {[{ key: 'standard', label: 'Orders', value: 'standard' as OrdersView }, { key: 'design', label: 'Design Orders', value: 'design' as OrdersView }].map((tab) => {
+          const isActive = view === tab.value;
+          return (
+            <button
+              key={tab.key}
+              type="button"
+              onClick={() => switchView(tab.value)}
+              className={`inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-semibold shadow-sm transition ${isActive ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-200 text-slate-800 hover:border-slate-300'}`}
+            >
+              {tab.label}
+            </button>
+          );
+        })}
 
-      <div className="mb-3 flex items-center gap-2">
-        <span className="text-sm font-semibold">{selectedIds.size} orders selected</span>
         <button
-          className="rounded-lg border border-slate-200 px-3 py-1 text-sm"
+          type="button"
+          className={`inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-semibold shadow-sm ${
+            isExporting ? 'border-slate-200 text-slate-400' : 'border-slate-200 text-slate-800 hover:border-slate-300'
+          }`}
+          onClick={() => {
+            if (isExporting) return;
+            setExportError(null);
+            setExportFrom(queryState.from ?? '');
+            setExportTo(queryState.to ?? '');
+            setExportStatus(queryState.orderStatus ?? 'all');
+            setExportOpen(true);
+          }}
+          disabled={isExporting}
+        >
+          {isExporting ? 'Exporting…' : 'Export orders'}
+        </button>
+
+        <button
+          type="button"
+          className={`ml-auto inline-flex h-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-700 hover:border-slate-300 ${
+            isFilterVisible ? 'w-9' : 'w-8'
+          }`}
+          onClick={() => setIsFilterVisible((prev) => !prev)}
+          aria-label={isFilterVisible ? 'Hide filters' : 'Show filters'}
+          title={isFilterVisible ? 'Hide filters' : 'Show filters'}
+        >
+          {isFilterVisible ? (
+            <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">
+              <path
+                d="M5 7h14l-5.5 6v4l-3 1v-5L5 7Z"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          ) : (
+            <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">
+              <path
+                d="M4 6h16M7 12h10M10 18h4"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+              />
+            </svg>
+          )}
+        </button>
+      </div>
+
+      {isFilterVisible && (
+        <div className="mt-3">
+          <OrdersFilterBar
+            values={queryState}
+            disabled={isFetching}
+            onChange={handleFiltersChange}
+            showPageSize={false}
+            searchPlaceholder={view === 'design' ? 'Search design orders' : 'Search order ID, tracking code, or user email'}
+            showReset={hasActiveFilters}
+            onReset={handleResetFilters}
+            hideOrderType={view === 'design'}
+            orderTypeDisabled={view === 'design'}
+            orderTypeOptions={
+              view === 'design'
+                ? [{ label: 'Design orders', value: 'design' }]
+                : [
+                    { label: 'All order types', value: '' },
+                    { label: 'Active tracking', value: 'active_tracking' },
+                    { label: 'Empty package', value: 'empty_package' },
+                    { label: 'Other', value: 'other' },
+                  ]
+            }
+            designSubtypeOptions={view === 'design' ? [{ label: 'All design subtypes', value: '' }, ...DESIGN_SUBTYPE_OPTIONS] : undefined}
+          />
+        </div>
+      )}
+
+      <div className="mb-3 mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+        <span className="text-sm font-semibold text-slate-700">{selectedIds.size} orders selected</span>
+        <div className="flex items-center gap-2">
+        <button
+          className={`rounded-lg px-3 py-1.5 text-sm font-semibold shadow-sm ${
+            canBulkStart && !bulkStartMutation.isLoading
+              ? 'bg-slate-900 text-white hover:bg-slate-800'
+              : 'bg-slate-200 text-slate-500'
+          }`}
           onClick={bulkStart}
           disabled={!canBulkStart || bulkStartMutation.isLoading}
         >
-          Start Processing
+          {bulkStartMutation.isLoading ? 'Starting…' : `Start Processing${selectedIds.size > 0 ? ` (${selectedIds.size})` : ''}`}
         </button>
-        <button
-          className="rounded-lg border border-slate-200 px-3 py-1 text-sm"
-          onClick={onBulkFailClick}
-          disabled={!canBulkFail || bulkFailMutation.isLoading}
-        >
-          Mark selected failed
-        </button>
-        <button
-          className="rounded-lg border border-slate-200 px-3 py-1 text-sm"
-          onClick={bulkArchive}
-          disabled={!canBulkArchive || bulkArchiveMutation.isLoading}
-        >
-          Archive selected
-        </button>
-        <button className="ml-2 text-sm text-slate-500" onClick={() => setSelectedIds(new Set())}>
+        <button className="text-sm text-slate-500 hover:text-slate-700" onClick={() => setSelectedIds(new Set())}>
           Clear selection
         </button>
+        </div>
       </div>
 
       <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -1000,7 +1032,7 @@ export const AdminOrdersPage = () => {
                   disabled={isFetching}
                   onChange={(event) => handleFiltersChange({ limit: Number(event.target.value) })}
                 >
-                  {[20, 50, 100, 200].map((option) => (
+                  {PAGE_SIZE_OPTIONS.map((option) => (
                     <option key={option} value={option}>
                       {option}/p
                     </option>
@@ -1103,8 +1135,6 @@ export const AdminOrdersPage = () => {
           </div>
         </div>
       )}
-
-      <BulkFailModal open={showFailModal} onClose={() => setShowFailModal(false)} onConfirm={submitBulkFail} />
 
       <AdminOrderDetailModal
         open={!!detailId}
@@ -1258,16 +1288,22 @@ export const AdminOrdersPage = () => {
       />
 
       <ConfirmModal
-        open={!!archiveConfirm}
-        title={archiveConfirm ? `Archive ${archiveConfirm.ids.length} order(s)?` : 'Archive orders?'}
-        description="This hides them from the main list."
-        confirmLabel="Archive"
-        onCancel={() => setArchiveConfirm(null)}
+        open={!!deleteConfirmOrder}
+        title={deleteConfirmOrder ? `Delete order ${deleteConfirmOrder.id.slice(0, 8)}?` : 'Delete order?'}
+        description="This action is permanent and cannot be undone."
+        confirmLabel={deleteOrderMutation.isPending ? 'Deleting…' : 'Delete'}
+        confirmDisabled={deleteOrderMutation.isPending}
+        onCancel={() => {
+          if (deleteOrderMutation.isPending) return;
+          setDeleteConfirmOrder(null);
+        }}
         onConfirm={() => {
-          if (!archiveConfirm) return;
-          const ids = archiveConfirm.ids;
-          setArchiveConfirm(null);
-          bulkArchiveMutation.mutate(ids, { onError: (err) => setToast(`Failed to archive: ${(err as Error).message}`) });
+          if (!deleteConfirmOrder) return;
+          const targetId = deleteConfirmOrder.id;
+          deleteOrderMutation.mutate(targetId, {
+            onError: (err) => setToast(`Failed to delete: ${(err as Error).message}`),
+            onSuccess: () => setDeleteConfirmOrder(null),
+          });
         }}
       />
     </AdminLayout>

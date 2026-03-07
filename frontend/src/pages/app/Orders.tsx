@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useLocation, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { DashboardLayout } from '../../components/DashboardLayout';
 import { OrdersFilterBar } from '../../components/orders/OrdersFilterBar';
 import { OrdersTable } from '../../components/orders/OrdersTable';
 import { EmptyState } from '../../components/EmptyState';
-import { fetchOrder, fetchOrders, fetchOrdersSummary, Order, OrderStatus, OrderType, OrdersQueryParams, OrdersResponse, OrdersSummaryResponse, PaymentStatus, payOrders } from '../../api/orders';
+import { fetchOrder, fetchOrders, fetchOrdersSummary, Order, OrderStatus, OrderType, OrdersQueryParams, OrdersResponse, PaymentStatus, payOrders } from '../../api/orders';
 import { OrderDetailModal } from '../../components/orders/OrderDetailModal';
 import { ImportLabelsModal } from '../../components/orders/ImportLabelsModal';
 import CreateDesignModal from '../../components/orders/CreateDesignModal';
@@ -17,7 +17,9 @@ const ORDER_TYPES: OrderType[] = ['active_tracking', 'empty_package', 'design', 
 const STANDARD_ORDER_TYPES: Array<Extract<OrderType, 'active_tracking' | 'empty_package'>> = ['active_tracking', 'empty_package'];
 const ORDER_STATUSES: OrderStatus[] = ['pending', 'processing', 'completed', 'failed'];
 const PAYMENT_STATUSES: PaymentStatus[] = ['unpaid', 'paid'];
-const DEFAULT_LIMIT = 20;
+const DEFAULT_LIMIT = 50;
+const PAGE_SIZE_OPTIONS = [50, 500, 1000, 2000] as const;
+const PAGE_SIZE_STORAGE_KEY = 'orders.pageSize.user';
 const FILTERABLE_KEYS: (keyof OrdersQueryParams)[] = ['orderType', 'orderStatus', 'paymentStatus', 'search', 'from', 'to', 'limit', 'designSubtype'];
 const DESIGN_SUBTYPE_OPTIONS = [
   { label: 'Illustration', value: '__label_illustration__' },
@@ -56,7 +58,14 @@ const coerceNumber = (value: string | null, fallback: number): number => {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 };
 
+const getStoredPageSize = () => {
+  if (typeof window === 'undefined') return DEFAULT_LIMIT;
+  const stored = Number(window.localStorage.getItem(PAGE_SIZE_STORAGE_KEY));
+  return PAGE_SIZE_OPTIONS.includes(stored as (typeof PAGE_SIZE_OPTIONS)[number]) ? stored : DEFAULT_LIMIT;
+};
+
 const OrdersPageBase = ({ view }: { view: OrdersView }) => {
+  const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
@@ -75,7 +84,14 @@ const OrdersPageBase = ({ view }: { view: OrdersView }) => {
   const [pendingPayIds, setPendingPayIds] = useState<string[]>([]);
   const [payResultOpen, setPayResultOpen] = useState(false);
   const [payResult, setPayResult] = useState<{ paidOrderIds: string[]; unpaidOrderIds: string[] } | null>(null);
+  const [isFilterVisible, setIsFilterVisible] = useState(false);
+  const initialLimit = useMemo(() => getStoredPageSize(), []);
   const { showToast } = useToast();
+
+  const standardModeFromPath: StandardOrdersMode = useMemo(
+    () => (location.pathname === '/empty-orders' ? 'empty_package' : 'active_tracking'),
+    [location.pathname],
+  );
 
   const queryState: OrdersQueryParams = useMemo(() => {
     const base: OrdersQueryParams = {
@@ -87,7 +103,7 @@ const OrdersPageBase = ({ view }: { view: OrdersView }) => {
       to: searchParams.get('to') ?? undefined,
       designSubtype: searchParams.get('designSubtype') ?? undefined,
       page: coerceNumber(searchParams.get('page'), 1),
-      limit: coerceNumber(searchParams.get('limit'), DEFAULT_LIMIT),
+      limit: coerceNumber(searchParams.get('limit'), initialLimit),
     };
     if (view === 'design') {
       return { ...base, orderType: 'design' };
@@ -95,30 +111,46 @@ const OrdersPageBase = ({ view }: { view: OrdersView }) => {
     const { designSubtype, ...rest } = base;
     return {
       ...rest,
-      // Standard orders always default to a concrete mode (no "All" mode).
-      orderType: (rest.orderType as StandardOrdersMode | undefined) ?? 'active_tracking',
+      orderType: standardModeFromPath,
     };
-  }, [searchParams, view]);
+  }, [initialLimit, searchParams, standardModeFromPath, view]);
 
-  // Keep URL in sync: if orderType is missing/invalid, force default mode.
   useEffect(() => {
-    if (view !== 'standard') return;
-    const current = searchParams.get('orderType');
-    if (current === 'active_tracking' || current === 'empty_package') return;
-    const next = new URLSearchParams(searchParams);
-    next.set('orderType', 'active_tracking');
-    next.set('page', '1');
-    setSearchParams(next, { replace: true });
-  }, [searchParams, setSearchParams, view]);
+    const limit = queryState.limit;
+    if (!PAGE_SIZE_OPTIONS.includes((limit ?? DEFAULT_LIMIT) as (typeof PAGE_SIZE_OPTIONS)[number])) return;
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(PAGE_SIZE_STORAGE_KEY, String(limit ?? DEFAULT_LIMIT));
+  }, [queryState.limit]);
 
   const { data, isLoading, isError, isFetching } = useQuery<OrdersResponse>({
     queryKey: ['orders', view, queryState],
     queryFn: () => fetchOrders(queryState),
   });
 
-  const summaryQuery = useQuery<OrdersSummaryResponse>({
-    queryKey: ['orders', 'summary', view],
-    queryFn: () => fetchOrdersSummary(view),
+  const summaryParams = useMemo(() => ({
+    view,
+    orderType: queryState.orderType,
+    orderStatus: queryState.orderStatus,
+    paymentStatus: queryState.paymentStatus,
+    search: queryState.search,
+    from: queryState.from,
+    to: queryState.to,
+    designSubtype: queryState.designSubtype,
+  }), [view, queryState.orderType, queryState.orderStatus, queryState.paymentStatus, queryState.search, queryState.from, queryState.to, queryState.designSubtype]);
+
+  const summaryQuery = useQuery({
+    queryKey: ['orders', 'summary', summaryParams],
+    queryFn: () => fetchOrdersSummary(summaryParams),
+  });
+
+  const totalSummaryParams = useMemo(() => ({
+    view,
+    orderType: queryState.orderType,
+  }), [view, queryState.orderType]);
+
+  const totalSummaryQuery = useQuery({
+    queryKey: ['orders', 'summary', 'total-only', totalSummaryParams],
+    queryFn: () => fetchOrdersSummary(totalSummaryParams),
   });
 
   const detailQuery = useQuery({
@@ -141,6 +173,8 @@ const OrdersPageBase = ({ view }: { view: OrdersView }) => {
     const localSummary = { total, pending, processing, unpaid, paid, errorCount };
     return summaryQuery.data ?? localSummary;
   }, [data, summaryQuery.data]);
+
+  const totalOrdersValue = totalSummaryQuery.data?.total ?? summary.total;
 
   const hasActiveFilters = useMemo(() => {
     return FILTERABLE_KEYS.some((key) => {
@@ -182,20 +216,11 @@ const OrdersPageBase = ({ view }: { view: OrdersView }) => {
     handleFiltersChange({ ...patch, page: 1 });
   };
 
-  const standardMode: StandardOrdersMode = useMemo(() => {
-    return queryState.orderType === 'empty_package' ? 'empty_package' : 'active_tracking';
-  }, [queryState.orderType]);
-
-  const setStandardMode = (next: StandardOrdersMode) => {
-    if (view !== 'standard') return;
-    applyFilter({ orderType: next });
-  };
-
   const handleResetFilters = () => {
     const next = new URLSearchParams();
     next.set('limit', String(DEFAULT_LIMIT));
     if (view === 'design') next.set('orderType', 'design');
-    if (view === 'standard') next.set('orderType', standardMode);
+    if (view === 'standard') next.set('orderType', standardModeFromPath);
     setSearchParams(next, { replace: true });
   };
 
@@ -214,10 +239,10 @@ const OrdersPageBase = ({ view }: { view: OrdersView }) => {
     }
 
     return {
-      orderType: standardMode,
+      orderType: standardModeFromPath,
       designSubtype: undefined,
     };
-  }, [queryState.designSubtype, standardMode, view]);
+  }, [queryState.designSubtype, standardModeFromPath, view]);
 
   const fetchAllOrdersForExport = useCallback(async (params: OrdersQueryParams) => {
     let page = 1;
@@ -417,96 +442,6 @@ const OrdersPageBase = ({ view }: { view: OrdersView }) => {
   return (
     <DashboardLayout title={view === 'design' ? 'Design' : 'Orders'}>
 
-      <div className="mt-4 flex flex-wrap items-center gap-2">
-        {view === 'standard' && (
-          <div className="inline-flex rounded-lg border border-slate-200 bg-white p-1 shadow-sm">
-            <button
-              type="button"
-              className={
-                standardMode === 'active_tracking'
-                  ? 'rounded-md bg-slate-900 px-3 py-1.5 text-sm font-semibold text-white'
-                  : 'rounded-md px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-50'
-              }
-              onClick={() => setStandardMode('active_tracking')}
-            >
-              Active tracking
-            </button>
-            <button
-              type="button"
-              className={
-                standardMode === 'empty_package'
-                  ? 'rounded-md bg-slate-900 px-3 py-1.5 text-sm font-semibold text-white'
-                  : 'rounded-md px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-50'
-              }
-              onClick={() => setStandardMode('empty_package')}
-            >
-              Empty package
-            </button>
-          </div>
-        )}
-
-        {view === 'design' ? (
-          <button
-            type="button"
-            className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-slate-800"
-            onClick={() => {
-              setIsCreateDesignOpen(true);
-            }}
-          >
-            Create Design
-          </button>
-        ) : (
-          <button
-            type="button"
-            className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-slate-800"
-            onClick={() => setIsImportOpen(true)}
-          >
-            {view === 'standard'
-              ? standardMode === 'active_tracking'
-                ? 'Import Active tracking (Excel)'
-                : 'Import Empty package (Excel)'
-              : 'Import Labels (Excel)'}
-          </button>
-        )}
-
-        <button
-          type="button"
-          className={`inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-semibold shadow-sm ${
-            isExporting ? 'border-slate-200 text-slate-400' : 'border-slate-200 text-slate-800 hover:border-slate-300'
-          }`}
-          onClick={() => {
-            if (isExporting) return;
-            setExportError(null);
-            setExportFrom(queryState.from ?? '');
-            setExportTo(queryState.to ?? '');
-            setExportStatus(queryState.orderStatus ?? 'all');
-            setExportOpen(true);
-          }}
-          disabled={isExporting}
-        >
-          {isExporting ? 'Exporting…' : 'Export orders'}
-        </button>
-
-        <button
-          type="button"
-          className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold shadow-sm ${
-            unpaidSelectedCount === 0 || payMutation.isPending
-              ? 'bg-slate-200 text-slate-500'
-              : 'bg-emerald-600 text-white hover:bg-emerald-700'
-          }`}
-          onClick={() => {
-            const ids = visibleOrders.filter((o) => o.paymentStatus === 'unpaid' && selectedIds.has(o.id)).map((o) => o.id);
-            if (ids.length === 0) return;
-            setPendingPayIds(ids);
-            setPayConfirmOpen(true);
-          }}
-          disabled={unpaidSelectedCount === 0 || payMutation.isPending}
-          title={unpaidSelectedCount === 0 ? 'Select unpaid orders to pay' : undefined}
-        >
-          {payMutation.isPending ? 'Paying…' : `Pay selected (${unpaidSelectedCount})`}
-        </button>
-      </div>
-
       <ConfirmModal
         open={payConfirmOpen}
         title="Confirm payment"
@@ -638,7 +573,7 @@ const OrdersPageBase = ({ view }: { view: OrdersView }) => {
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
         {[{
           label: 'Total orders',
-          value: summary.total,
+          value: totalOrdersValue,
           containerClass: 'border border-slate-100 bg-slate-50 hover:border-slate-200',
           labelClass: 'text-slate-600',
           valueClass: 'text-xl text-ink',
@@ -691,33 +626,131 @@ const OrdersPageBase = ({ view }: { view: OrdersView }) => {
         ))}
       </div>
 
-      <div className="mt-5">
-        <OrdersFilterBar
-          values={queryState}
-          disabled={isFetching}
-          onChange={handleFiltersChange}
-          showReset={hasActiveFilters}
-          onReset={handleResetFilters}
-          showPageSize={false}
-          searchPlaceholder={view === 'design' ? 'Search design orders' : 'Search order ID or tracking code'}
-          orderTypeOptions=
-            {view === 'design'
-              ? [{ label: 'Design orders', value: 'design' }]
-              : [
-                  { label: 'All order types', value: '' },
-                  { label: 'Active tracking', value: 'active_tracking' },
-                  { label: 'Empty package', value: 'empty_package' },
-                  { label: 'Other', value: 'other' },
-                ]}
-          orderTypeDisabled={view === 'design'}
-          hideOrderType={view === 'design' || view === 'standard'}
-          designSubtypeOptions={
-            view === 'design'
-              ? [{ label: 'All design subtypes', value: '' }, ...DESIGN_SUBTYPE_OPTIONS]
-              : undefined
-          }
-        />
+      <div className="mt-5 flex flex-wrap items-center gap-2">
+        {view === 'design' ? (
+          <button
+            type="button"
+            className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-slate-800"
+            onClick={() => {
+              setIsCreateDesignOpen(true);
+            }}
+          >
+            Create Design
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-slate-800"
+            onClick={() => setIsImportOpen(true)}
+          >
+            {view === 'standard'
+              ? standardModeFromPath === 'active_tracking'
+                ? 'Import Active tracking (Excel)'
+                : 'Import Empty package (Excel)'
+              : 'Import Labels (Excel)'}
+          </button>
+        )}
+
+        <button
+          type="button"
+          className={`inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-semibold shadow-sm ${
+            isExporting ? 'border-slate-200 text-slate-400' : 'border-slate-200 text-slate-800 hover:border-slate-300'
+          }`}
+          onClick={() => {
+            if (isExporting) return;
+            setExportError(null);
+            setExportFrom(queryState.from ?? '');
+            setExportTo(queryState.to ?? '');
+            setExportStatus(queryState.orderStatus ?? 'all');
+            setExportOpen(true);
+          }}
+          disabled={isExporting}
+        >
+          {isExporting ? 'Exporting…' : 'Export orders'}
+        </button>
+
+        <button
+          type="button"
+          className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold shadow-sm ${
+            unpaidSelectedCount === 0 || payMutation.isPending
+              ? 'bg-slate-200 text-slate-500'
+              : 'bg-emerald-600 text-white hover:bg-emerald-700'
+          }`}
+          onClick={() => {
+            const ids = visibleOrders.filter((o) => o.paymentStatus === 'unpaid' && selectedIds.has(o.id)).map((o) => o.id);
+            if (ids.length === 0) return;
+            setPendingPayIds(ids);
+            setPayConfirmOpen(true);
+          }}
+          disabled={unpaidSelectedCount === 0 || payMutation.isPending}
+          title={unpaidSelectedCount === 0 ? 'Select unpaid orders to pay' : undefined}
+        >
+          {payMutation.isPending ? 'Paying…' : `Pay selected (${unpaidSelectedCount})`}
+        </button>
+
+        <button
+          type="button"
+          className={`ml-auto inline-flex h-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-700 hover:border-slate-300 ${
+            isFilterVisible ? 'w-9' : 'w-8'
+          }`}
+          onClick={() => setIsFilterVisible((prev) => !prev)}
+          aria-label={isFilterVisible ? 'Hide filters' : 'Show filters'}
+          title={isFilterVisible ? 'Hide filters' : 'Show filters'}
+        >
+          {isFilterVisible ? (
+            <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">
+              <path
+                d="M5 7h14l-5.5 6v4l-3 1v-5L5 7Z"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          ) : (
+            <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">
+              <path
+                d="M4 6h16M7 12h10M10 18h4"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+              />
+            </svg>
+          )}
+        </button>
       </div>
+
+      {isFilterVisible && (
+        <div className="mt-3">
+          <OrdersFilterBar
+            values={queryState}
+            disabled={isFetching}
+            onChange={handleFiltersChange}
+            showReset={hasActiveFilters}
+            onReset={handleResetFilters}
+            showPageSize={false}
+            searchPlaceholder={view === 'design' ? 'Search design orders' : 'Search order ID or tracking code'}
+            orderTypeOptions=
+              {view === 'design'
+                ? [{ label: 'Design orders', value: 'design' }]
+                : [
+                    { label: 'All order types', value: '' },
+                    { label: 'Active tracking', value: 'active_tracking' },
+                    { label: 'Empty package', value: 'empty_package' },
+                    { label: 'Other', value: 'other' },
+                  ]}
+            orderTypeDisabled={view === 'design'}
+            hideOrderType={view === 'design' || view === 'standard'}
+            designSubtypeOptions={
+              view === 'design'
+                ? [{ label: 'All design subtypes', value: '' }, ...DESIGN_SUBTYPE_OPTIONS]
+                : undefined
+            }
+          />
+        </div>
+      )}
 
       <div className="mt-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
         {isLoading && <p className="text-sm text-slate-600">Loading orders…</p>}
@@ -731,6 +764,7 @@ const OrdersPageBase = ({ view }: { view: OrdersView }) => {
             primaryUrlSource="label"
             labelHeader="Label"
             showAssets={false}
+            showSelection={false}
             selectedIds={selectedIds}
             onToggleRow={toggleRow}
             onToggleAll={toggleAll}
@@ -747,6 +781,7 @@ const OrdersPageBase = ({ view }: { view: OrdersView }) => {
             primaryUrlSource="result"
             labelHeader="Result"
             showAssets
+            showSelection={false}
             selectedIds={selectedIds}
             onToggleRow={toggleRow}
             onToggleAll={toggleAll}
@@ -801,7 +836,7 @@ const OrdersPageBase = ({ view }: { view: OrdersView }) => {
                   disabled={isFetching}
                   onChange={(event) => handleFiltersChange({ limit: Number(event.target.value) })}
                 >
-                  {[10, 20, 50].map((option) => (
+                  {PAGE_SIZE_OPTIONS.map((option) => (
                     <option key={option} value={option}>
                       {option}/p
                     </option>
@@ -832,9 +867,9 @@ const OrdersPageBase = ({ view }: { view: OrdersView }) => {
         onClose={() => setIsImportOpen(false)}
         defaultServiceType={
           view === 'standard'
-            ? standardMode === 'active_tracking'
+            ? standardModeFromPath === 'active_tracking'
               ? 'active'
-              : standardMode === 'empty_package'
+              : standardModeFromPath === 'empty_package'
                 ? 'empty'
                 : undefined
             : undefined

@@ -1,7 +1,9 @@
 import { useMemo, useState } from 'react';
 import { Link, NavLink, useLocation } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthProvider';
 import { UserMenu } from './UserMenu';
+import { fetchBalance } from '../api/dashboard';
 
 export type NavItem = {
   label: string;
@@ -26,9 +28,9 @@ const marketingNavItems: NavItem[] = [
 
 const appNavItems = [
   { label: 'Dashboard', to: '/dashboard' },
-  { label: 'Orders', to: '/orders' },
+  { label: 'Active tracking', to: '/trackings' },
+  { label: 'Empty package', to: '/empty-orders' },
   { label: 'Design', to: '/design' },
-  { label: 'Credit', to: '/balance' },
   { label: 'Pricing', to: '/pricing' },
 ];
 
@@ -51,6 +53,15 @@ export const Navbar = () => {
   const dropdownItems = useMemo(() => marketingNavItems.find((item) => item.children)?.children ?? [], []);
   const onAdminRoute = location.pathname.startsWith('/admin');
   const authenticatedNavItems = onAdminRoute ? adminNavItems : appNavItems;
+  const balanceQuery = useQuery({
+    queryKey: ['balance'],
+    queryFn: fetchBalance,
+    enabled: isAuthenticated,
+  });
+  const balance = balanceQuery.data?.balance;
+  const formattedBalance = typeof balance === 'number'
+    ? Number(balance).toLocaleString(undefined, { maximumFractionDigits: 2 })
+    : null;
 
   return (
     <header className="sticky top-0 z-30 border-b border-slate-100 bg-white/90 backdrop-blur">
@@ -123,6 +134,28 @@ export const Navbar = () => {
               Login
             </Link>
           )}
+          {isAuthenticated && (
+            <Link
+              to="/balance"
+              className="hidden sm:inline-flex items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800 hover:bg-emerald-100"
+            >
+              Balance:&nbsp;
+              {formattedBalance ? (
+                <span className="inline-flex items-center gap-1 font-bold">
+                  <span>{formattedBalance}</span>
+                  <span
+                    aria-hidden="true"
+                    className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-emerald-200 text-[10px] text-emerald-900"
+                    title="Credits"
+                  >
+                    ◉
+                  </span>
+                </span>
+              ) : (
+                '—'
+              )}
+            </Link>
+          )}
 
           {isAuthenticated && <UserMenu email={user?.email} role={user?.role} onLogout={logout} />}
 
@@ -177,6 +210,30 @@ export const Navbar = () => {
                   {item.label}
                 </NavLink>
               ))}
+
+            {isAuthenticated && (
+              <Link
+                to="/balance"
+                className="block rounded-lg bg-emerald-50 px-4 py-2 font-semibold text-emerald-800"
+                onClick={() => setOpen(false)}
+              >
+                Balance:{' '}
+                {formattedBalance ? (
+                  <span className="inline-flex items-center gap-1">
+                    <span>{formattedBalance}</span>
+                    <span
+                      aria-hidden="true"
+                      className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-emerald-200 text-[10px] text-emerald-900"
+                      title="Credits"
+                    >
+                      ◉
+                    </span>
+                  </span>
+                ) : (
+                  '—'
+                )}
+              </Link>
+            )}
 
             {!isAuthenticated ? (
               <Link

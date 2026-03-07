@@ -32,6 +32,7 @@ export type OrderListItem = {
   paymentStatus: PaymentStatus;
   adminNote?: string | null;
   internalNotes?: string | null;
+  isDuplicateTracking?: boolean;
   createdAt: Date;
   user?: { id: string; email?: string | null } | null;
 };
@@ -72,6 +73,12 @@ export type BulkStartProcessingActionResponse = {
   orders: Order[];
   upload?: ByeastsideUploadResponse;
   uploadError?: string;
+};
+
+type ListOrdersOptions = {
+  includeUserEmail?: boolean;
+  includeDuplicateTrackingHint?: boolean;
+  duplicateScope?: 'global' | 'user';
 };
 
 @Injectable()
@@ -117,6 +124,8 @@ export class OrdersService {
   }
 
   private applyFilters(qb: SelectQueryBuilder<Order>, filters: ListOrdersDto) {
+    qb.andWhere('o.archived = false');
+
     if (filters.userId) {
       qb.andWhere('o.user_id = :userId', { userId: filters.userId });
     }
@@ -161,7 +170,7 @@ export class OrdersService {
     }
   }
 
-  async listOrders(filters: ListOrdersDto, options?: { includeUserEmail?: boolean }): Promise<OrderListResponse> {
+  async listOrders(filters: ListOrdersDto, options?: ListOrdersOptions): Promise<OrderListResponse> {
     const page = filters.page ?? 1;
     const limit = filters.limit ?? 20;
     const qb = this.ordersRepo.createQueryBuilder('o');
@@ -174,6 +183,22 @@ export class OrdersService {
     qb.orderBy('o.createdAt', 'DESC');
 
     const [data, total] = await qb.skip((page - 1) * limit).take(limit).getManyAndCount();
+
+    const trackingCodesForHint = options?.includeDuplicateTrackingHint
+      ? Array.from(
+          new Set(
+            data
+              .map((order) => this.normalizeTrackingCode(order.trackingCode))
+              .filter((code) => code.length > 0),
+          ),
+        )
+      : [];
+
+    const duplicateTrackingCodes = trackingCodesForHint.length > 0
+      ? await this.findDuplicateTrackingCodes(trackingCodesForHint, {
+          userId: options?.duplicateScope === 'user' ? filters.userId : undefined,
+        })
+      : new Set<string>();
 
     const mapped: OrderListItem[] = data.map((order) => ({
       id: order.id,
@@ -188,6 +213,7 @@ export class OrdersService {
       paymentStatus: order.paymentStatus,
       adminNote: order.adminNote ?? null,
       internalNotes: order.adminNote ?? null,
+      isDuplicateTracking: duplicateTrackingCodes.has(this.normalizeTrackingCode(order.trackingCode).toLowerCase()),
       createdAt: order.createdAt,
       user: options?.includeUserEmail && order.user ? { id: order.user.id, email: order.user.email ?? null } : undefined,
     }));
@@ -261,7 +287,7 @@ export class OrdersService {
   }
 
   async createScanLabelOrder(userId: string, dto: ScanLabelDto, opts?: { skipDebit?: boolean }) {
-    const trackingCode = dto.trackingCode?.trim();
+    const trackingCode = this.normalizeTrackingCode(dto.trackingCode);
     if (!trackingCode) {
       throw new BadRequestException('trackingCode is required');
     }
@@ -318,7 +344,7 @@ export class OrdersService {
     const normalized = Array.from(
       new Set(
         (trackingCodes ?? [])
-          .map((value) => String(value ?? '').trim())
+          .map((value) => this.normalizeTrackingCode(value))
           .filter(Boolean),
       ),
     );
@@ -614,6 +640,36 @@ export class OrdersService {
       .replace(/\s+/g, '');
   }
 
+  async findDuplicateTrackingCodes(trackingCodes: string[], scope?: { userId?: string }): Promise<Set<string>> {
+    const normalized = Array.from(
+      new Set(
+        (trackingCodes ?? [])
+          .map((code) => this.normalizeTrackingCode(code).toLowerCase())
+          .filter((code) => code.length > 0),
+      ),
+    );
+
+    if (normalized.length === 0) return new Set<string>();
+
+    const qb = this.ordersRepo
+      .createQueryBuilder('o')
+      .select("LOWER(REPLACE(TRIM(o.trackingCode), ' ', ''))", 'tracking')
+      .where('o.trackingCode IS NOT NULL')
+      .andWhere('o.archived = false')
+      .andWhere("LOWER(REPLACE(TRIM(o.trackingCode), ' ', '')) IN (:...codes)", { codes: normalized });
+
+    if (scope?.userId) {
+      qb.andWhere('o.user_id = :userId', { userId: scope.userId });
+    }
+
+    const rows = await qb
+      .groupBy("LOWER(REPLACE(TRIM(o.trackingCode), ' ', ''))")
+      .having('COUNT(*) > 1')
+      .getRawMany<{ tracking: string }>();
+
+    return new Set(rows.map((row) => String(row.tracking ?? '').toLowerCase()).filter(Boolean));
+  }
+
   private async ensureOutputDir(): Promise<void> {
     await mkdir(this.outputDir, { recursive: true });
   }
@@ -856,6 +912,13 @@ export class OrdersService {
     // return list of affected orders
     const affected = await this.ordersRepo.createQueryBuilder('o').where('o.id IN (:...ids)', { ids: orderIds }).getMany();
     return affected;
+  }
+
+  async deleteOrder(orderId: string): Promise<{ id: string; deleted: true }> {
+    const order = await this.ordersRepo.findOne({ where: { id: orderId } });
+    if (!order) throw new NotFoundException('Order not found');
+    await this.ordersRepo.delete(orderId);
+    return { id: orderId, deleted: true };
   }
 
   async markScanSuccess(orderId: string, payload: { trackingCode?: string | null; trackingUrl?: string | null; activatedAt: Date; firstCheckpointAt?: Date | null }) {
